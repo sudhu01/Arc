@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../data/store.dart';
 import '../sheets/sheet_actions.dart';
@@ -95,8 +96,25 @@ class _LibraryRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isBw = exercise.unit == 'bw';
+
+    Future<void> confirmDelete() async {
+      HapticFeedback.mediumImpact();
+      final ok = await showArcConfirm(
+        context: context,
+        title: 'Delete ${exercise.name}?',
+        message: trained > 0
+            ? 'It will be removed from your library. Past workouts that used '
+                'it keep their logged sets.'
+            : 'It will be removed from your exercise library.',
+        confirmLabel: 'Delete',
+      );
+      if (!ok || !context.mounted) return;
+      await context.read<ArcStore>().deleteExercise(exercise.id);
+    }
+
     return GestureDetector(
       onTap: best != null ? () => Sheets.openPR(context, exercise.id) : null,
+      onLongPress: confirmDelete,
       behavior: HitTestBehavior.opaque,
       child: Container(
         color: AppColors.surface,

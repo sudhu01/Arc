@@ -1,0 +1,10 @@
+# Build output
+arc-server
+arc-server.exe
+arcserver
+arcserver.exe
+
+# Local databases
+*.db
+*.db-wal
+*.db-shm

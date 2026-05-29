@@ -101,6 +101,7 @@ class Companion {
   final String? publicKey; // base64 Ed25519 public key — null until learned
   final String displayName;
   final CompanionStatus status;
+  final bool incoming; // pending request the peer sent me (I can accept)
   final int addedAt; // ms since epoch
   final int? lastSyncedAt;
 
@@ -109,6 +110,7 @@ class Companion {
     this.publicKey,
     required this.displayName,
     required this.status,
+    this.incoming = false,
     required this.addedAt,
     this.lastSyncedAt,
   });
@@ -117,6 +119,7 @@ class Companion {
     String? publicKey,
     String? displayName,
     CompanionStatus? status,
+    bool? incoming,
     int? lastSyncedAt,
   }) =>
       Companion(
@@ -124,6 +127,7 @@ class Companion {
         publicKey: publicKey ?? this.publicKey,
         displayName: displayName ?? this.displayName,
         status: status ?? this.status,
+        incoming: incoming ?? this.incoming,
         addedAt: addedAt,
         lastSyncedAt: lastSyncedAt ?? this.lastSyncedAt,
       );

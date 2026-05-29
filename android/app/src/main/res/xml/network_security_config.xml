@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Allows cleartext (http://) so the app can reach a LOCAL Arc sync server during
+  development:
+    • emulator      → http://10.0.2.2:8080  (alias for the host's localhost)
+    • real device   → http://<your-PC-LAN-IP>:8080
+  Android blocks cleartext by default on modern targetSdk, which otherwise makes
+  every sync fail before the request leaves the device.
+
+  PRODUCTION: serve the relay over HTTPS and tighten this — either delete this
+  file (HTTPS is allowed by default) or restrict cleartext to specific dev
+  domains, e.g.:
+    <domain-config cleartextTrafficPermitted="true">
+      <domain includeSubdomains="true">10.0.2.2</domain>
+    </domain-config>
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

@@ -1,10 +1,12 @@
 import 'package:flutter/foundation.dart';
 
 import 'arc_data.dart';
+import 'companion_data.dart';
 import 'db/app_database.dart';
 import 'identity/identity_service.dart';
 import 'identity/pairing.dart';
 import 'models.dart';
+import 'sync/sync_service.dart';
 
 /// A transient toast request (saved workout / new PR / removed).
 class ArcToast {
@@ -34,18 +36,36 @@ class DraftEntry {
 /// stays synchronous. Every mutation writes through to the DB and marks rows
 /// dirty for the future sync server.
 class ArcStore extends ChangeNotifier {
-  ArcStore({required AppDatabase db, required IdentityService identity})
-      : _db = db,
-        _identity = identity;
+  ArcStore({
+    required AppDatabase db,
+    required IdentityService identity,
+    required SyncService sync,
+  })  : _db = db,
+        _identity = identity,
+        _sync = sync;
 
   final AppDatabase _db;
   final IdentityService _identity;
+  final SyncService _sync;
 
   late List<Exercise> _exercises;
   late List<Session> _sessions;
   Map<String, ExerciseRecord> _records = {};
   late WorkoutStats _stats;
   List<Companion> _companions = [];
+
+  // ── Sync status (for the companion sheet) ───────────────────────────
+  bool _syncing = false;
+  bool _restoring = false;
+  int? _lastSyncedAt;
+  String? _syncError;
+  String? _serverUrl;
+
+  bool get syncing => _syncing;
+  bool get restoring => _restoring;
+  int? get lastSyncedAt => _lastSyncedAt;
+  String? get syncError => _syncError;
+  String get serverUrl => _serverUrl ?? kDefaultArcServerUrl;
 
   // ── Existing public surface (unchanged for the screens) ─────────────
   List<Exercise> get exercises => _exercises;
@@ -75,6 +95,8 @@ class ArcStore extends ChangeNotifier {
   /// [IdentityService.ensure]. New accounts start empty — no seed/placeholder
   /// data; users build their own exercise library and history.
   Future<void> init() async {
+    final st = await _db.getSelfSyncState();
+    _serverUrl = st.serverUrl;
     await _reload();
   }
 
@@ -200,6 +222,30 @@ class ArcStore extends ChangeNotifier {
     }
   }
 
+  /// Delete the workout logged on [date] (tombstoned for sync).
+  Future<void> deleteSession(String date) async {
+    final ses = sessionForDate(date);
+    if (ses == null) return;
+    await _db.deleteSession(ses.id);
+    _sessions = _sessions.where((s) => s.id != ses.id).toList();
+    _recompute();
+    notifyListeners();
+    _fire('Workout removed', 'trash');
+  }
+
+  /// Delete an exercise from the library (tombstoned for sync). Past workouts
+  /// keep their logged sets, but the exercise no longer appears in the library
+  /// or its personal records.
+  Future<void> deleteExercise(String id) async {
+    final ex = exById(id);
+    if (ex == null) return;
+    await _db.deleteExercise(id);
+    _exercises = _exercises.where((e) => e.id != id).toList();
+    _recompute();
+    notifyListeners();
+    _fire('Exercise deleted', 'trash');
+  }
+
   // ── Companions ──────────────────────────────────────────────────────
 
   /// Set my display name (shown to companions in my QR).
@@ -211,6 +257,8 @@ class ArcStore extends ChangeNotifier {
 
   /// Add a companion from a scanned QR payload. Returns false if it's me or a
   /// malformed/duplicate scan (already a companion just refreshes their info).
+  /// Stores the contact locally, then sends a pairing request to the server
+  /// (best-effort — if offline, the next sync re-sends it).
   Future<bool> addCompanionFromScan(String raw) async {
     final payload = PairingPayload.tryParse(raw);
     if (payload == null) return false;
@@ -224,21 +272,134 @@ class ArcStore extends ChangeNotifier {
       publicId: payload.publicId,
       publicKey: payload.publicKey,
       displayName: payload.displayName,
-      // Scanning is consent to follow them; acceptance/sync happens server-side.
+      // Scanning is the request; the peer must accept before data flows.
       status: existing?.status ?? CompanionStatus.pending,
+      incoming: existing?.incoming ?? false,
       addedAt: existing?.addedAt ?? DateTime.now().millisecondsSinceEpoch,
       lastSyncedAt: existing?.lastSyncedAt,
     ));
     _companions = await _db.getCompanions();
     notifyListeners();
     _fire('Added ${payload.displayName}', 'check');
+
+    try {
+      await _sync.requestCompanion(payload.publicId);
+    } catch (_) {
+      // Offline / server down — the pending row stays; resend on next sync.
+    }
     return true;
   }
 
+  /// Accept a companion's incoming pairing request.
+  Future<void> acceptCompanion(String publicId) async {
+    await _sync.acceptCompanion(publicId);
+    final c = _companions.where((c) => c.publicId == publicId).firstOrNull;
+    if (c != null) {
+      await _db.upsertCompanion(
+          c.copyWith(status: CompanionStatus.accepted, incoming: false));
+    }
+    _companions = await _db.getCompanions();
+    notifyListeners();
+    _fire('Companion accepted', 'check');
+  }
+
+  /// Block a companion (severs sync both ways).
+  Future<void> blockCompanion(String publicId) async {
+    await _sync.blockCompanion(publicId);
+    final c = _companions.where((c) => c.publicId == publicId).firstOrNull;
+    if (c != null) {
+      await _db.upsertCompanion(
+          c.copyWith(status: CompanionStatus.blocked, incoming: false));
+    }
+    _companions = await _db.getCompanions();
+    notifyListeners();
+  }
+
   Future<void> removeCompanion(String publicId) async {
+    try {
+      await _sync.deleteCompanion(publicId);
+    } catch (_) {
+      // Best-effort; remove locally regardless.
+    }
     await _db.deleteCompanion(publicId);
     _companions = await _db.getCompanions();
     notifyListeners();
+  }
+
+  /// Load a read-only snapshot of a companion's synced data (owner = them),
+  /// with the same derived records/stats the dashboard uses.
+  Future<CompanionData?> loadCompanionData(String publicId) async {
+    final companion =
+        _companions.where((c) => c.publicId == publicId).firstOrNull;
+    if (companion == null) return null;
+    final exercises = await _db.getExercises(publicId);
+    final sessions = await _db.getSessions(publicId);
+    return CompanionData.from(companion, exercises, sessions);
+  }
+
+  /// Point this device at a different sync server (forces re-auth).
+  Future<void> setServerUrl(String url) async {
+    final trimmed = url.trim();
+    await _db.setServerUrl(trimmed);
+    await _db.setSyncToken(null);
+    _serverUrl = trimmed;
+    notifyListeners();
+  }
+
+  // ── Account restore ───────────────────────────────────────────────────
+
+  /// Restore a backed-up account from its 24-word recovery phrase: re-key this
+  /// device to that identity, then re-download my own data (workouts + library)
+  /// from the relay. Returns the number of objects restored.
+  ///
+  /// Replaces whatever identity/data is on this device, so it's intended for a
+  /// fresh install. Throws [FormatException] on an invalid phrase, or a
+  /// [SyncException]/network error if the server is unreachable.
+  Future<int> restoreAccount(String phrase) async {
+    if (_restoring) return 0;
+    _restoring = true;
+    notifyListeners();
+    try {
+      // Swap in the backed-up identity (validates the phrase first).
+      await _identity.restoreFromPhrase(phrase, _db);
+      // Any cached credentials/cursor belonged to the old identity.
+      await _db.setSyncToken(null);
+      await _db.setSyncCursor(0);
+      // Pull my own change feed back down (also repopulates my display name),
+      // then refresh the cached identity + UI caches.
+      final restored = await _sync.restoreFromServer();
+      await _identity.ensure(_db);
+      await _reload();
+      _fire('Account restored · $restored items', 'check');
+      return restored;
+    } finally {
+      _restoring = false;
+      notifyListeners();
+    }
+  }
+
+  // ── Sync ────────────────────────────────────────────────────────────
+
+  /// Push my changes, pull companions', refresh the companion graph.
+  Future<void> syncNow() async {
+    if (_syncing) return;
+    _syncing = true;
+    _syncError = null;
+    notifyListeners();
+    try {
+      final result = await _sync.syncNow();
+      _companions = await _db.getCompanions();
+      _lastSyncedAt = DateTime.now().millisecondsSinceEpoch;
+      notifyListeners();
+      _fire('Synced · ↑${result.pushed} ↓${result.pulled}', 'check');
+    } catch (e) {
+      _syncError = e.toString();
+      debugPrint('Arc sync failed: $e'); // visible in `flutter run` / logcat
+      _fire('Sync failed', 'trash');
+    } finally {
+      _syncing = false;
+      notifyListeners();
+    }
   }
 }
 

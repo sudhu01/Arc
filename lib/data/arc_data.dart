@@ -55,6 +55,15 @@ class ArcData {
     return v.round();
   }
 
+  /// Compact volume label in thousands of kg: 0 → "0k", 400 → "0.4k",
+  /// 12340 → "12k". Sub-1k volumes keep one decimal so they don't read "0k".
+  static String fmtVolK(int kg) {
+    if (kg == 0) return '0k';
+    final k = kg / 1000;
+    if (kg < 1000) return '${k.toStringAsFixed(1)}k';
+    return '${k.round()}k';
+  }
+
   /// Best record per exercise across all sessions, plus chronological history.
   static Map<String, ExerciseRecord> computeRecords(
       List<Session> sessions, List<Exercise> exercises) {

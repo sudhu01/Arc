@@ -109,7 +109,7 @@ class _DashboardState extends State<Dashboard> {
             const SizedBox(width: 10),
             StatTile(
                 label: 'Volume',
-                value: '${(stats.totalVol / 1000).round()}k',
+                value: ArcData.fmtVolK(stats.totalVol),
                 unit: 'kg'),
             const SizedBox(width: 10),
             StatTile(label: 'Total sets', value: '${stats.totalSets}'),
@@ -118,8 +118,8 @@ class _DashboardState extends State<Dashboard> {
         const SizedBox(height: 24),
 
         if (sessions.isEmpty)
-          ArcCard(
-            padding: const EdgeInsets.fromLTRB(20, 30, 20, 24),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(0, 56, 0, 24),
             child: Column(
               children: [
                 const ArcIcon('dumbbell', size: 40, color: AppColors.faint),

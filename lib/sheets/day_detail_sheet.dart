@@ -50,6 +50,20 @@ class DayDetailSheet extends StatelessWidget {
         ses.entries.fold<int>(0, (a, e) => a + e.sets.length);
     final vol = ArcData.sessionVolume(ses);
 
+    Future<void> delete() async {
+      final ok = await showArcConfirm(
+        context: context,
+        title: 'Delete workout?',
+        message:
+            "This removes ${ses.title} and all its sets from your history. "
+            "This can't be undone.",
+        confirmLabel: 'Delete',
+      );
+      if (!ok || !context.mounted) return;
+      await context.read<ArcStore>().deleteSession(date);
+      if (context.mounted) Navigator.of(context).maybePop();
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
@@ -68,20 +82,29 @@ class DayDetailSheet extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 14),
-        for (final e in ses.entries) ...[
-          _EntryCard(
-            exercise: store.exById(e.exerciseId)!,
-            sets: e.sets,
-            fmtW: fmtW,
-          ),
-          const SizedBox(height: 14),
-        ],
-        ArcButton(
-            label: 'Edit workout',
-            icon: 'pencil',
-            variant: BtnVariant.ghost,
-            full: true,
-            onTap: edit),
+        for (final e in ses.entries)
+          if (store.exById(e.exerciseId) case final ex?) ...[
+            _EntryCard(exercise: ex, sets: e.sets, fmtW: fmtW),
+            const SizedBox(height: 14),
+          ],
+        Row(
+          children: [
+            Expanded(
+              child: ArcButton(
+                  label: 'Edit workout',
+                  icon: 'pencil',
+                  variant: BtnVariant.ghost,
+                  full: true,
+                  onTap: edit),
+            ),
+            const SizedBox(width: 10),
+            ArcButton(
+                label: 'Delete',
+                icon: 'trash',
+                variant: BtnVariant.danger,
+                onTap: delete),
+          ],
+        ),
       ],
     );
   }

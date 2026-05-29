@@ -21,7 +21,7 @@ class AppDatabase {
   final Database db;
 
   static const _dbName = 'arc.db';
-  static const _version = 1;
+  static const _version = 2;
 
   /// Open the database. [factory] and [path] are injectable so tests can run
   /// against an in-memory sqflite_common_ffi database.
@@ -34,9 +34,18 @@ class AppDatabase {
         version: _version,
         onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
         onCreate: _onCreate,
+        onUpgrade: _onUpgrade,
       ),
     );
     return AppDatabase._(database);
+  }
+
+  static Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    // v2: track whether a pending companion request is incoming (peer asked me).
+    if (oldVersion < 2) {
+      await db.execute(
+          'ALTER TABLE companions ADD COLUMN incoming INTEGER NOT NULL DEFAULT 0');
+    }
   }
 
   static Future<void> _onCreate(Database db, int version) async {
@@ -60,6 +69,7 @@ class AppDatabase {
         public_key     TEXT,
         display_name   TEXT NOT NULL,
         status         TEXT NOT NULL,           -- pending | accepted | blocked
+        incoming       INTEGER NOT NULL DEFAULT 0, -- 1 = peer requested me (I can accept)
         added_at       INTEGER NOT NULL,
         last_synced_at INTEGER
       )
@@ -178,11 +188,42 @@ class AppDatabase {
         'public_key': c.publicKey,
         'display_name': c.displayName,
         'status': c.status.name,
+        'incoming': c.incoming ? 1 : 0,
         'added_at': c.addedAt,
         'last_synced_at': c.lastSyncedAt,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+  }
+
+  /// Reconcile a companion from the server's list, preserving the locally-known
+  /// public key and added_at (the server doesn't return those).
+  Future<void> mergeCompanionFromServer(
+      String publicId, String displayName, CompanionStatus status, bool incoming) async {
+    final existing = await db.query('companions',
+        where: 'public_id = ?', whereArgs: [publicId], limit: 1);
+    if (existing.isEmpty) {
+      await db.insert('companions', {
+        'public_id': publicId,
+        'public_key': null,
+        'display_name': displayName.isEmpty ? 'Companion' : displayName,
+        'status': status.name,
+        'incoming': incoming ? 1 : 0,
+        'added_at': DateTime.now().millisecondsSinceEpoch,
+      });
+    } else {
+      await db.update(
+        'companions',
+        {
+          'display_name':
+              displayName.isEmpty ? existing.first['display_name'] : displayName,
+          'status': status.name,
+          'incoming': incoming ? 1 : 0,
+        },
+        where: 'public_id = ?',
+        whereArgs: [publicId],
+      );
+    }
   }
 
   Future<void> deleteCompanion(String publicId) async {
@@ -195,6 +236,7 @@ class AppDatabase {
         displayName: r['display_name'] as String,
         status: CompanionStatus.values
             .byName(r['status'] as String? ?? 'pending'),
+        incoming: (r['incoming'] as int? ?? 0) == 1,
         addedAt: r['added_at'] as int,
         lastSyncedAt: r['last_synced_at'] as int?,
       );
@@ -225,6 +267,20 @@ class AppDatabase {
         'dirty': dirty ? 1 : 0,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Tombstone an exercise (kept for sync; hidden from the library + records).
+  Future<void> deleteExercise(String exerciseId) async {
+    await db.update(
+      'exercises',
+      {
+        'deleted': 1,
+        'dirty': 1,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'id = ?',
+      whereArgs: [exerciseId],
     );
   }
 
@@ -355,4 +411,144 @@ class AppDatabase {
     ));
     return (count ?? 0) == 0;
   }
+
+  // ── Sync: outbound (dirty rows → push) ────────────────────────────────
+  Future<List<Map<String, Object?>>> getDirtyExercises(String ownerId) =>
+      db.query('exercises', where: 'owner_id = ? AND dirty = 1', whereArgs: [ownerId]);
+
+  Future<List<Map<String, Object?>>> getDirtySessions(String ownerId) =>
+      db.query('sessions', where: 'owner_id = ? AND dirty = 1', whereArgs: [ownerId]);
+
+  Future<List<Map<String, Object?>>> getEntryRows(String sessionId) => db.query(
+      'entries',
+      where: 'session_id = ?',
+      whereArgs: [sessionId],
+      orderBy: 'position ASC');
+
+  Future<List<Map<String, Object?>>> getSetRows(String entryId) => db.query('sets',
+      where: 'entry_id = ?', whereArgs: [entryId], orderBy: 'position ASC');
+
+  Future<void> clearDirty(String table, List<String> ids) async {
+    if (ids.isEmpty) return;
+    assert(table == 'sessions' || table == 'exercises');
+    final placeholders = List.filled(ids.length, '?').join(',');
+    await db.rawUpdate('UPDATE $table SET dirty = 0 WHERE id IN ($placeholders)', ids);
+  }
+
+  // ── Sync: inbound (apply pulled companion changes; LWW by updated_at) ──
+  Future<void> applyRemoteExercise(
+    String ownerId,
+    Map<String, dynamic> p, {
+    required int updatedAt,
+    required bool deleted,
+  }) async {
+    final id = p['id'] as String;
+    if (await _isStale('exercises', id, updatedAt)) return;
+    await db.insert(
+      'exercises',
+      {
+        'id': id,
+        'name': p['name'] ?? '',
+        'muscle_group': p['group'] ?? '',
+        'unit': p['unit'] ?? 'kg',
+        'owner_id': ownerId,
+        'updated_at': updatedAt,
+        'deleted': deleted ? 1 : 0,
+        'dirty': 0,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<void> applyRemoteSession(
+    String ownerId,
+    Map<String, dynamic> p, {
+    required int updatedAt,
+    required bool deleted,
+  }) async {
+    final id = p['id'] as String;
+    if (await _isStale('sessions', id, updatedAt)) return;
+    await db.transaction((txn) async {
+      txn.insert(
+        'sessions',
+        {
+          'id': id,
+          'date': p['date'] ?? '',
+          'title': p['title'] ?? '',
+          'owner_id': ownerId,
+          'updated_at': updatedAt,
+          'deleted': deleted ? 1 : 0,
+          'dirty': 0,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      await txn.delete('entries', where: 'session_id = ?', whereArgs: [id]);
+      if (deleted) return;
+      final entries = (p['entries'] as List?) ?? const [];
+      for (var ei = 0; ei < entries.length; ei++) {
+        final e = entries[ei] as Map<String, dynamic>;
+        final eid = e['id'] as String;
+        txn.insert('entries', {
+          'id': eid,
+          'session_id': id,
+          'exercise_id': e['exercise_id'],
+          'position': ei,
+          'owner_id': ownerId,
+        });
+        final sets = (e['sets'] as List?) ?? const [];
+        for (var si = 0; si < sets.length; si++) {
+          final s = sets[si] as Map<String, dynamic>;
+          txn.insert('sets', {
+            'id': s['id'],
+            'entry_id': eid,
+            'weight': (s['weight'] as num).toDouble(),
+            'reps': s['reps'],
+            'position': si,
+            'owner_id': ownerId,
+          });
+        }
+      }
+    });
+  }
+
+  /// True if a stored row is at least as new as [updatedAt] (skip the apply).
+  Future<bool> _isStale(String table, String id, int updatedAt) async {
+    final rows = await db.query(table,
+        columns: ['updated_at'], where: 'id = ?', whereArgs: [id], limit: 1);
+    return rows.isNotEmpty && (rows.first['updated_at'] as int) >= updatedAt;
+  }
+
+  // ── Sync state (server url / token / cursor for the 'self' scope) ─────
+  Future<SyncState> getSelfSyncState() async {
+    final rows = await db
+        .query('sync_state', where: 'scope = ?', whereArgs: ['self'], limit: 1);
+    if (rows.isEmpty) return const SyncState();
+    final r = rows.first;
+    return SyncState(
+      serverUrl: r['server_url'] as String?,
+      token: r['session_token'] as String?,
+      cursor: int.tryParse((r['cursor'] as String?) ?? '') ?? 0,
+    );
+  }
+
+  Future<void> _setSyncField(String column, Object? value) async {
+    await db.insert('sync_state', {'scope': 'self'},
+        conflictAlgorithm: ConflictAlgorithm.ignore);
+    await db.update('sync_state',
+        {column: value, 'updated_at': DateTime.now().millisecondsSinceEpoch},
+        where: 'scope = ?', whereArgs: ['self']);
+  }
+
+  Future<void> setServerUrl(String url) => _setSyncField('server_url', url);
+  Future<void> setSyncToken(String? token) => _setSyncField('session_token', token);
+  Future<void> setSyncCursor(int cursor) =>
+      _setSyncField('cursor', cursor.toString());
+}
+
+/// The 'self' row of `sync_state`: where/how this device talks to the server.
+class SyncState {
+  final String? serverUrl;
+  final String? token;
+  final int cursor;
+  const SyncState({this.serverUrl, this.token, this.cursor = 0});
 }

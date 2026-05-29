@@ -84,6 +84,15 @@ class IdentityService {
     return signature.bytes;
   }
 
+  /// base64url(no-pad) Ed25519 signature over the UTF-8 bytes of [message].
+  /// Used for the server's register (over public_id) and verify (over nonce).
+  Future<String> signB64u(String message) async =>
+      _b64u(await sign(utf8.encode(message)));
+
+  /// Public base64url helpers (no padding) matching the server's wire format.
+  static String encodeB64u(List<int> b) => _b64u(b);
+  static List<int> decodeB64u(String s) => _b64uDecode(s);
+
   /// Verify a [signature] over [message] against a base64url public key.
   /// Used to check a companion's / the server's signatures.
   Future<bool> verify(

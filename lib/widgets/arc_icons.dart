@@ -57,14 +57,20 @@ class ArcIcons {
         return Icons.qr_code_2_rounded;
       case 'scan':
         return Icons.qr_code_scanner_rounded;
+      case 'image':
+        return Icons.photo_library_outlined;
       case 'share':
         return Icons.ios_share_rounded;
       case 'copy':
         return Icons.content_copy_rounded;
       case 'key':
         return Icons.vpn_key_outlined;
+      case 'restore':
+        return Icons.settings_backup_restore_rounded;
       case 'shield':
         return Icons.verified_user_outlined;
+      case 'refresh':
+        return Icons.sync_rounded;
       default:
         return Icons.circle_outlined;
     }

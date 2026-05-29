@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'data/db/app_database.dart';
 import 'data/identity/identity_service.dart';
 import 'data/store.dart';
+import 'data/sync/sync_service.dart';
 import 'screens/home_shell.dart';
 import 'theme/app_theme.dart';
 
@@ -20,7 +21,8 @@ Future<void> main() async {
   final db = await AppDatabase.open();
   final identity = IdentityService();
   await identity.ensure(db);
-  final store = ArcStore(db: db, identity: identity);
+  final sync = SyncService(db: db, identity: identity);
+  final store = ArcStore(db: db, identity: identity, sync: sync);
   await store.init();
 
   runApp(ArcAppRoot(store: store));

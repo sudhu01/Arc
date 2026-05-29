@@ -175,6 +175,66 @@ class ArcButton extends StatelessWidget {
   }
 }
 
+/// Arc-styled confirm dialog. Resolves to `true` only if the user confirms.
+Future<bool> showArcConfirm({
+  required BuildContext context,
+  required String title,
+  String? message,
+  String confirmLabel = 'Delete',
+  String cancelLabel = 'Cancel',
+  bool danger = true,
+}) async {
+  final ok = await showDialog<bool>(
+    context: context,
+    barrierColor: const Color(0x6B0A0806),
+    builder: (ctx) => Dialog(
+      backgroundColor: AppColors.surface,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 40),
+      shape: const RoundedRectangleBorder(borderRadius: AppRadii.rLg),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(title,
+                style: AppText.sora(size: 18, weight: FontWeight.w700)),
+            if (message != null) ...[
+              const SizedBox(height: 8),
+              Text(message,
+                  style: AppText.sora(
+                      size: 13.5, height: 1.4, color: AppColors.muted)),
+            ],
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: ArcButton(
+                    label: cancelLabel,
+                    variant: BtnVariant.quiet,
+                    full: true,
+                    onTap: () => Navigator.of(ctx).pop(false),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ArcButton(
+                    label: confirmLabel,
+                    variant: danger ? BtnVariant.danger : BtnVariant.primary,
+                    full: true,
+                    onTap: () => Navigator.of(ctx).pop(true),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+  return ok ?? false;
+}
+
 class SegOption {
   final String value;
   final String label;
