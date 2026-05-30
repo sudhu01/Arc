@@ -110,6 +110,10 @@ class SyncApi {
   Future<Map<String, dynamic>> _send(String method, String path,
       {Map<String, dynamic>? body, String? token}) async {
     final req = http.Request(method, Uri.parse('$baseUrl$path'));
+    // Skip ngrok's free-tier HTML interstitial so it never replaces a JSON
+    // response when the relay is exposed via an ngrok tunnel. Ignored by any
+    // other server.
+    req.headers['ngrok-skip-browser-warning'] = 'true';
     if (token != null) req.headers['Authorization'] = 'Bearer $token';
     if (body != null) {
       req.headers['Content-Type'] = 'application/json';

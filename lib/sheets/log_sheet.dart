@@ -368,8 +368,10 @@ class _LogSheetState extends State<LogSheet> {
           Expanded(
             child: ArcStepper(
               value: s.weight,
-              step: 5,
+              step: 2.5,
               suffix: 'kg',
+              editable: true,
+              decimals: 1,
               onChanged: (v) => setState(() => s.weight = v.toDouble()),
             ),
           ),

@@ -12,12 +12,14 @@ import '../identity/identity_service.dart';
 import '../models.dart';
 import 'sync_api.dart';
 
-/// Dev default. Override with `--dart-define=ARC_SERVER_URL=https://…`.
-/// Set to the host PC's LAN IP so physical devices can reach the relay
-/// (`10.0.2.2` only works from the Android emulator, where it aliases the
-/// host's loopback).
-const String kDefaultArcServerUrl =
-    String.fromEnvironment('ARC_SERVER_URL', defaultValue: 'http://192.168.88.111:8080');
+/// Public default: the relay is exposed over HTTPS through an ngrok tunnel
+/// (agent runs on the host, auto-starts at logon), so any device reaches it
+/// with no LAN/IP/Tailscale setup. Override with
+/// `--dart-define=ARC_SERVER_URL=https://…` (e.g. a LAN IP for local dev).
+const String kDefaultArcServerUrl = String.fromEnvironment(
+  'ARC_SERVER_URL',
+  defaultValue: 'https://storeyed-paz-undeadened.ngrok-free.dev',
+);
 
 typedef SyncApiFactory = SyncApi Function(String baseUrl);
 
@@ -62,15 +64,34 @@ class SyncService {
 
   // ── Public API ────────────────────────────────────────────────────
 
-  /// Push local changes, pull companions', refresh the companion graph.
+  /// Push local changes, (re)send pending pairing requests, pull companions',
+  /// refresh the companion graph.
   Future<SyncResult> syncNow() async {
     final api = await _resolveApi();
     return _authed(api, (token) async {
       final pushed = await _push(api, token);
       final pulled = await _pull(api, token);
+      await _pushPendingRequests(api, token);
       await _refreshCompanions(api, token);
       return SyncResult(pushed: pushed, pulled: pulled);
     });
+  }
+
+  /// Re-send any still-outstanding outbound pairing requests. Scanning a QR
+  /// fires the request immediately, but that lone call can fail (the peer or
+  /// server briefly unreachable, or the peer not yet registered) — and nothing
+  /// else would retry it, so the request would be silently lost while the
+  /// scanner sees a paired contact. Reconciling here on every sync makes
+  /// pairing self-healing. The server's request endpoint is idempotent
+  /// (ON CONFLICT DO NOTHING; reciprocal pending auto-accepts), so re-sending
+  /// an already-known or already-accepted edge is harmless.
+  Future<void> _pushPendingRequests(SyncApi api, String token) async {
+    for (final c in await _db.getCompanions()) {
+      // My own outgoing request still awaiting the peer's acceptance.
+      if (c.status == CompanionStatus.pending && !c.incoming) {
+        await api.requestCompanion(token, c.publicId);
+      }
+    }
   }
 
   /// Re-download this device's *own* change feed from the relay and apply it as

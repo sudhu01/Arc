@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:arc/data/arc_data.dart';
 import 'package:arc/data/companion_data.dart';
 import 'package:arc/data/db/app_database.dart';
 import 'package:arc/data/identity/identity_service.dart';
@@ -42,6 +43,9 @@ Future<ArcStore> _bootStore() async {
 
 void main() {
   setUpAll(sqfliteFfiInit);
+  // Pin "today" so date-dependent widgets/fixtures render deterministically.
+  setUp(() => ArcData.debugToday = DateTime(2026, 5, 29));
+  tearDown(() => ArcData.debugToday = null);
 
   testWidgets('Arc app boots to the dashboard', (tester) async {
     // Boot the SQLite/identity backend in the real async zone — the ffi

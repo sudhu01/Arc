@@ -116,24 +116,24 @@ class CompanionSheet extends StatelessWidget {
           disabled: store.syncing,
           onTap: () => store.syncNow(),
         ),
-        Padding(
-          padding: const EdgeInsets.only(top: 7, bottom: 2),
-          child: Text(
-            store.syncError != null
-                ? 'Sync failed: ${store.syncError}'
-                : store.lastSyncedAt != null
-                    ? 'Last synced ${_clock(store.lastSyncedAt!)} · ${_host(store.serverUrl)}'
-                    : 'Syncs with ${_host(store.serverUrl)}',
-            textAlign: TextAlign.center,
-            maxLines: 3,
-            overflow: TextOverflow.ellipsis,
-            style: AppText.sora(
-              size: 11.5,
-              height: 1.35,
-              color: store.syncError != null ? AppColors.danger : AppColors.faint,
+        if (store.syncError != null || store.lastSyncedAt != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 7, bottom: 2),
+            child: Text(
+              store.syncError != null
+                  ? 'Sync failed: ${store.syncError}'
+                  : 'Last synced ${_clock(store.lastSyncedAt!)}',
+              textAlign: TextAlign.center,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: AppText.sora(
+                size: 11.5,
+                height: 1.35,
+                color:
+                    store.syncError != null ? AppColors.danger : AppColors.faint,
+              ),
             ),
           ),
-        ),
         const SizedBox(height: 16),
 
         // ── Incoming requests ──────────────────────────────────────────

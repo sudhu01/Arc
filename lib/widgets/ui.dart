@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../theme/app_theme.dart';
 import 'arc_icons.dart';
 
@@ -312,14 +313,18 @@ class Segmented extends StatelessWidget {
   }
 }
 
-/// Number field with -/+ buttons.
-class ArcStepper extends StatelessWidget {
+/// Number field with -/+ buttons. When [editable] is true, double-tapping the
+/// value lets the user type it in directly (numeric only, up to [decimals]
+/// decimal places).
+class ArcStepper extends StatefulWidget {
   final num value;
   final ValueChanged<num> onChanged;
   final num step;
   final num min;
   final num max;
   final String? suffix;
+  final bool editable;
+  final int decimals;
 
   const ArcStepper({
     super.key,
@@ -329,9 +334,56 @@ class ArcStepper extends StatelessWidget {
     this.min = 0,
     this.max = 9999,
     this.suffix,
+    this.editable = false,
+    this.decimals = 0,
   });
 
-  void _set(num v) => onChanged(v.clamp(min, max));
+  @override
+  State<ArcStepper> createState() => _ArcStepperState();
+}
+
+class _ArcStepperState extends State<ArcStepper> {
+  final _controller = TextEditingController();
+  final _focus = FocusNode();
+  bool _editing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _focus.addListener(() {
+      if (!_focus.hasFocus) _commit();
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focus.dispose();
+    super.dispose();
+  }
+
+  void _set(num v) => widget.onChanged(v.clamp(widget.min, widget.max));
+
+  String get _display => widget.value % 1 == 0
+      ? widget.value.toInt().toString()
+      : widget.value.toString();
+
+  void _startEditing() {
+    _controller.text = _display;
+    _controller.selection =
+        TextSelection(baseOffset: 0, extentOffset: _controller.text.length);
+    setState(() => _editing = true);
+    _focus.requestFocus();
+  }
+
+  void _commit() {
+    if (!_editing) return;
+    var text = _controller.text.trim();
+    if (text.endsWith('.')) text = text.substring(0, text.length - 1);
+    final parsed = num.tryParse(text);
+    if (parsed != null) _set(parsed);
+    setState(() => _editing = false);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -345,7 +397,51 @@ class ArcStepper extends StatelessWidget {
           ),
         );
 
-    final display = value % 1 == 0 ? value.toInt().toString() : value.toString();
+    Widget center;
+    if (_editing) {
+      center = TextField(
+        controller: _controller,
+        focusNode: _focus,
+        textAlign: TextAlign.center,
+        keyboardType:
+            TextInputType.numberWithOptions(decimal: widget.decimals > 0),
+        inputFormatters: [_DecimalInputFormatter(widget.decimals)],
+        cursorColor: AppColors.accentStrong,
+        onSubmitted: (_) => _commit(),
+        style: AppText.mono(size: 19, weight: FontWeight.w600),
+        decoration: const InputDecoration(
+          isCollapsed: true,
+          contentPadding: EdgeInsets.symmetric(vertical: 14),
+          border: InputBorder.none,
+        ),
+      );
+    } else {
+      center = FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            Text(_display,
+                style: AppText.mono(size: 19, weight: FontWeight.w600)),
+            if (widget.suffix != null)
+              Padding(
+                padding: const EdgeInsets.only(left: 3),
+                child: Text(widget.suffix!,
+                    style: AppText.sora(size: 12, color: AppColors.muted)),
+              ),
+          ],
+        ),
+      );
+      if (widget.editable) {
+        center = GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onDoubleTap: _startEditing,
+          child: center,
+        );
+      }
+    }
 
     return Container(
       decoration: const BoxDecoration(
@@ -355,31 +451,28 @@ class ArcStepper extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: Row(
         children: [
-          btn('minus', () => _set(value - step)),
-          Expanded(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.baseline,
-                textBaseline: TextBaseline.alphabetic,
-                children: [
-                  Text(display,
-                      style: AppText.mono(size: 19, weight: FontWeight.w600)),
-                  if (suffix != null)
-                    Padding(
-                      padding: const EdgeInsets.only(left: 3),
-                      child: Text(suffix!,
-                          style: AppText.sora(size: 12, color: AppColors.muted)),
-                    ),
-                ],
-              ),
-            ),
-          ),
-          btn('plus', () => _set(value + step)),
+          btn('minus', () => _set(widget.value - widget.step)),
+          Expanded(child: center),
+          btn('plus', () => _set(widget.value + widget.step)),
         ],
       ),
     );
+  }
+}
+
+/// Allows only numeric input with at most [decimals] digits after a single
+/// decimal point (e.g. "62.5"). When [decimals] is 0, only whole numbers pass.
+class _DecimalInputFormatter extends TextInputFormatter {
+  final int decimals;
+  const _DecimalInputFormatter(this.decimals);
+
+  @override
+  TextEditingValue formatEditUpdate(
+      TextEditingValue oldValue, TextEditingValue newValue) {
+    final text = newValue.text;
+    if (text.isEmpty) return newValue;
+    final pattern = decimals > 0 ? '^\\d*\\.?\\d{0,$decimals}\$' : r'^\d*$';
+    return RegExp(pattern).hasMatch(text) ? newValue : oldValue;
   }
 }
 

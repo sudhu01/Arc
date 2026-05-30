@@ -44,10 +44,11 @@ class Sheets {
     );
   }
 
-  static Future<void> openAddExercise(BuildContext context) {
+  static Future<void> openAddExercise(BuildContext context,
+      {String group = 'Push'}) {
     return showArcSheet(
       context: context,
-      builder: (_) => const AddExerciseSheet(),
+      builder: (_) => AddExerciseSheet(initialGroup: group),
     );
   }
 

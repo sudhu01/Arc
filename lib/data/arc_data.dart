@@ -15,7 +15,17 @@ class ArcData {
   };
 
   // ── Date helpers (local dates, no TZ drift) ─────────────────────────
-  static final DateTime today = DateTime(2026, 5, 29); // Fri, May 29 2026
+
+  /// Pins [today] to a fixed date in tests so date-dependent widgets render
+  /// deterministically. Null in production (uses the real clock).
+  static DateTime? debugToday;
+
+  /// The current local date with the time-of-day stripped, so ISO formatting
+  /// and day-level comparisons stay clean.
+  static DateTime get today {
+    final n = debugToday ?? DateTime.now();
+    return DateTime(n.year, n.month, n.day);
+  }
 
   static String iso(DateTime d) =>
       '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';

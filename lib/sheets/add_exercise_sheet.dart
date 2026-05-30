@@ -26,11 +26,15 @@ class AddExerciseForm extends StatefulWidget {
   final VoidCallback? onCancel;
   final String submitLabel;
 
+  /// Muscle group selected by default (e.g. preset from the Library tab).
+  final String initialGroup;
+
   const AddExerciseForm({
     super.key,
     required this.onCreate,
     this.onCancel,
     this.submitLabel = 'Add exercise',
+    this.initialGroup = 'Push',
   });
 
   @override
@@ -39,7 +43,7 @@ class AddExerciseForm extends StatefulWidget {
 
 class _AddExerciseFormState extends State<AddExerciseForm> {
   final _controller = TextEditingController();
-  String _group = 'Push';
+  late String _group = widget.initialGroup;
   String _unit = 'kg';
 
   @override
@@ -193,14 +197,17 @@ class _ArcTextFieldState extends State<ArcTextField> {
   }
 }
 
-/// App-level "New Exercise" sheet (launched from the Library tab).
+/// App-level "New Exercise" sheet (launched from the Library tab). [initialGroup]
+/// preselects the muscle group — e.g. the tab the user is currently filtering by.
 class AddExerciseSheet extends StatelessWidget {
-  const AddExerciseSheet({super.key});
+  final String initialGroup;
+  const AddExerciseSheet({super.key, this.initialGroup = 'Push'});
 
   @override
   Widget build(BuildContext context) {
     final store = context.read<ArcStore>();
     return AddExerciseForm(
+      initialGroup: initialGroup,
       onCreate: (name, group, unit) async {
         await store.addExercise(name: name, group: group, unit: unit);
         if (context.mounted) Navigator.of(context).maybePop();
