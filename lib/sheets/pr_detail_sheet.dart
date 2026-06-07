@@ -26,7 +26,12 @@ class PRDetailSheet extends StatelessWidget {
         ? 0.0
         : hist.map((h) => h.weight).reduce((a, b) => a > b ? a : b);
     final totalReps = hist.fold<int>(0, (a, h) => a + h.reps);
-    final gain = hist.length > 1 ? hist.last.score - hist.first.score : 0;
+    // Gain mirrors the chart below: reps for bodyweight, max weight otherwise.
+    final num gain = hist.length > 1
+        ? (isBw
+            ? hist.last.reps - hist.first.reps
+            : hist.last.maxWeight - hist.first.maxWeight)
+        : 0;
 
     String fmtW(double w) => w % 1 == 0 ? w.toInt().toString() : w.toString();
 
@@ -73,7 +78,7 @@ class PRDetailSheet extends StatelessWidget {
                 textBaseline: TextBaseline.alphabetic,
                 children: [
                   Text(
-                    isBw ? '${best.reps}' : '${best.score}',
+                    isBw ? '${best.reps}' : ArcData.fmtScore(best.score),
                     style: AppText.mono(size: 52, weight: FontWeight.w700, height: 1),
                   ),
                   const SizedBox(width: 8),
@@ -109,14 +114,14 @@ class PRDetailSheet extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(isBw ? 'Reps over time' : '1RM over time',
+                  Text(isBw ? 'Reps over time' : 'Max weight per session',
                       style: AppText.sora(size: 13, weight: FontWeight.w600)),
                   if (gain > 0)
                     Row(
                       children: [
                         const ArcIcon('arrowUp', size: 13, color: AppColors.up),
                         const SizedBox(width: 3),
-                        Text('+$gain ${isBw ? 'reps' : 'kg'}',
+                        Text('+${isBw ? gain : fmtW(gain.toDouble())} ${isBw ? 'reps' : 'kg'}',
                             style: AppText.sora(
                                 size: 12.5,
                                 weight: FontWeight.w700,
@@ -125,7 +130,15 @@ class PRDetailSheet extends StatelessWidget {
                     ),
                 ],
               ),
-              LineChart(data: hist.map((h) => h.score).toList(), height: 140),
+              ProgressChart(
+                points: [
+                  for (final h in hist)
+                    ProgressPoint(ArcData.parseISO(h.date),
+                        isBw ? h.reps.toDouble() : h.maxWeight),
+                ],
+                unit: isBw ? 'reps' : 'kg',
+                height: 150,
+              ),
             ],
           ),
         ),
@@ -232,7 +245,7 @@ class _ProgressRow extends StatelessWidget {
                 ],
                 const Spacer(),
                 if (!isBw)
-                  Text('${point.score} 1RM',
+                  Text('${ArcData.fmtScore(point.score)} 1RM',
                       style: AppText.mono(
                           size: 13, weight: FontWeight.w500, color: AppColors.faint)),
               ],

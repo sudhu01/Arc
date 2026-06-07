@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import 'arc_data.dart';
@@ -128,11 +130,12 @@ class ArcStore extends ChangeNotifier {
     return null;
   }
 
-  WorkoutSet? lastSetFor(String exId) {
+  WorkoutSet? bestSetFor(String exId) {
     for (final s in _sessions) {
       for (final e in s.entries) {
         if (e.exerciseId == exId && e.sets.isNotEmpty) {
-          return e.sets.last;
+          return e.sets.reduce((a, b) =>
+              a.weight > b.weight ? a : (a.weight < b.weight ? b : (a.reps >= b.reps ? a : b)));
         }
       }
     }
@@ -150,6 +153,7 @@ class ArcStore extends ChangeNotifier {
     _exercises = [..._exercises, ex];
     _recompute();
     notifyListeners();
+    unawaited(autoSync());
     return id;
   }
 
@@ -220,6 +224,8 @@ class ArcStore extends ChangeNotifier {
     } else {
       _fire('Workout saved', 'check');
     }
+
+    unawaited(autoSync()); // push this change to the relay in the background
   }
 
   /// Delete the workout logged on [date] (tombstoned for sync).
@@ -231,6 +237,7 @@ class ArcStore extends ChangeNotifier {
     _recompute();
     notifyListeners();
     _fire('Workout removed', 'trash');
+    unawaited(autoSync());
   }
 
   /// Delete an exercise from the library (tombstoned for sync). Past workouts
@@ -244,6 +251,7 @@ class ArcStore extends ChangeNotifier {
     _recompute();
     notifyListeners();
     _fire('Exercise deleted', 'trash');
+    unawaited(autoSync());
   }
 
   // ── Companions ──────────────────────────────────────────────────────
@@ -380,9 +388,17 @@ class ArcStore extends ChangeNotifier {
 
   // ── Sync ────────────────────────────────────────────────────────────
 
-  /// Push my changes, pull companions', refresh the companion graph.
-  Future<void> syncNow() async {
-    if (_syncing) return;
+  /// Manual sync (the "Sync now" button). Announces success and failure.
+  /// Kept as the user's explicit fallback alongside the automatic syncs.
+  Future<void> syncNow() => _runSync(announceSuccess: true);
+
+  /// Background sync fired after a local change and on app open. Stays quiet on
+  /// success (no toast spam) but surfaces failures loudly — and since failed
+  /// pushes leave rows `dirty`, the next sync retries automatically.
+  Future<void> autoSync() => _runSync(announceSuccess: false);
+
+  Future<void> _runSync({required bool announceSuccess}) async {
+    if (_syncing) return; // a sync is already in flight; let it finish
     _syncing = true;
     _syncError = null;
     notifyListeners();
@@ -391,11 +407,15 @@ class ArcStore extends ChangeNotifier {
       _companions = await _db.getCompanions();
       _lastSyncedAt = DateTime.now().millisecondsSinceEpoch;
       notifyListeners();
-      _fire('Synced · ↑${result.pushed} ↓${result.pulled}', 'check');
+      if (announceSuccess) {
+        _fire('Synced · ↑${result.pushed} ↓${result.pulled}', 'check');
+      }
     } catch (e) {
       _syncError = e.toString();
       debugPrint('Arc sync failed: $e'); // visible in `flutter run` / logcat
-      _fire('Sync failed', 'trash');
+      // Loud either way: the user must know data didn't reach the server. The
+      // local copy is safe (rows stay dirty) and will retry on the next sync.
+      _fire('Sync failed — saved locally, will retry', 'trash');
     } finally {
       _syncing = false;
       notifyListeners();

@@ -26,8 +26,8 @@ class _RecordsState extends State<Records> {
         .where((r) => _filter == 'All' || r!.ex.group == _filter)
         .toList()
       ..sort((a, b) {
-        final sa = a!.ex.isBodyweight ? 0 : a.best!.score;
-        final sb = b!.ex.isBodyweight ? 0 : b.best!.score;
+        final sa = a!.ex.isBodyweight ? 0.0 : a.best!.score;
+        final sb = b!.ex.isBodyweight ? 0.0 : b.best!.score;
         return sb.compareTo(sa);
       });
 
@@ -111,8 +111,13 @@ class _RecordRow extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Text(isBw ? '${best.reps}' : '${best.score}',
-                    style: AppText.mono(size: 22, weight: FontWeight.w700, height: 1)),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerRight,
+                  child: Text(isBw ? '${best.reps}' : ArcData.fmtScore(best.score),
+                      style: AppText.mono(
+                          size: 22, weight: FontWeight.w700, height: 1)),
+                ),
                 const SizedBox(height: 1),
                 Text(isBw ? 'reps' : 'est. 1RM',
                     style: AppText.sora(

@@ -49,11 +49,12 @@ class ArcData {
   }
 
   // ── Metrics ─────────────────────────────────────────────────────────
-  static int e1rm(double weight, int reps) =>
-      weight <= 0 ? 0 : (weight * (1 + reps / 30)).round();
+  /// Epley estimated 1RM, kept to one decimal place of precision.
+  static double e1rm(double weight, int reps) =>
+      weight <= 0 ? 0.0 : (weight * (1 + reps / 30) * 10).round() / 10;
 
-  static int setScore(Exercise ex, WorkoutSet s) =>
-      ex.unit == 'bw' ? s.reps : e1rm(s.weight, s.reps);
+  static double setScore(Exercise ex, WorkoutSet s) =>
+      ex.unit == 'bw' ? s.reps.toDouble() : e1rm(s.weight, s.reps);
 
   static int sessionVolume(Session session) {
     var v = 0.0;
@@ -74,6 +75,13 @@ class ArcData {
     return '${k.round()}k';
   }
 
+  /// Formats a 1RM/score to one decimal place, dropping a trailing `.0`
+  /// (187.5 → "187.5", 190.0 → "190").
+  static String fmtScore(num v) {
+    final d = v.toDouble();
+    return d % 1 == 0 ? d.toInt().toString() : d.toStringAsFixed(1);
+  }
+
   /// Best record per exercise across all sessions, plus chronological history.
   static Map<String, ExerciseRecord> computeRecords(
       List<Session> sessions, List<Exercise> exercises) {
@@ -88,19 +96,22 @@ class ArcData {
         if (rec == null) continue;
         final ex = rec.ex;
         WorkoutSet? topSet;
-        var topScore = -1;
+        var topScore = -1.0;
+        var maxW = 0.0;
         for (final s in e.sets) {
           final sc = setScore(ex, s);
           if (sc > topScore) {
             topScore = sc;
             topSet = s;
           }
+          if (s.weight > maxW) maxW = s.weight;
         }
         if (topSet == null) continue;
         final point = RecordPoint(
           date: ses.date,
           score: topScore,
           weight: topSet.weight,
+          maxWeight: maxW,
           reps: topSet.reps,
         );
         rec.history.add(point);

@@ -26,8 +26,25 @@ class FakeSecretStore implements SecretStore {
   Future<void> write(String key, String value) async => _map[key] = value;
 }
 
-SyncService _noopSync(AppDatabase db, IdentityService identity) =>
-    SyncService(db: db, identity: identity);
+/// A SyncService that can never reach the network — auto-sync now fires on
+/// every mutation, so tests that don't exercise sync must not hit the real
+/// relay. Every request fails fast; local writes are unaffected (rows just
+/// stay dirty).
+SyncService _noopSync(AppDatabase db, IdentityService identity) {
+  final offline = MockClient((_) async => http.Response('{}', 503));
+  return SyncService(
+    db: db,
+    identity: identity,
+    apiFactory: (url) => SyncApi(baseUrl: url, client: offline),
+  );
+}
+
+/// Wait out any in-flight background (auto) sync so assertions are deterministic.
+Future<void> _settle(ArcStore store) async {
+  for (var i = 0; i < 400 && store.syncing; i++) {
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
+}
 
 Future<ArcStore> _bootStore() async {
   final db = await AppDatabase.open(
@@ -234,6 +251,9 @@ void main() {
           sets: [DraftSet(weight: 100, reps: 5, id: 's1')]),
     ]);
 
+    // addExercise + saveSession each kick a background auto-sync; let any
+    // in-flight sync settle, then flush once more so every dirty row is pushed.
+    await _settle(store);
     await store.syncNow();
 
     // No error; dirty rows were pushed and cleared.
@@ -252,6 +272,47 @@ void main() {
     final pat = store.companions.where((c) => c.publicId == 'peerX').first;
     expect(pat.status.name, 'accepted');
     expect(pat.displayName, 'Pat');
+  });
+
+  test('applyRemoteSession: rapid restore batch commits every subtree', () async {
+    // Regression: restore applies many session subtrees back-to-back. With
+    // un-awaited inserts inside the transaction, sqflite raced and silently
+    // dropped some sessions/children — so restored devices lost recent
+    // workouts. Every applied subtree must persist whole.
+    final db = await AppDatabase.open(
+        factory: databaseFactoryFfi, path: inMemoryDatabasePath);
+    const owner = 'meOwner';
+    const n = 25;
+    for (var i = 0; i < n; i++) {
+      final day = ((i % 28) + 1).toString().padLeft(2, '0');
+      await db.applyRemoteSession(
+        owner,
+        {
+          'id': 'ses$i',
+          'date': '2026-06-$day',
+          'title': 'W$i',
+          'entries': [
+            {
+              'id': 'ent$i',
+              'exercise_id': 'ex$i',
+              'sets': [
+                {'id': 'set${i}a', 'weight': 50.0, 'reps': 5},
+                {'id': 'set${i}b', 'weight': 0.0, 'reps': 8},
+              ],
+            }
+          ],
+        },
+        updatedAt: 1000 + i,
+        deleted: false,
+      );
+    }
+
+    final sessions = await db.getSessions(owner);
+    expect(sessions.length, n, reason: 'every applied session must persist');
+    for (final s in sessions) {
+      expect(s.entries.length, 1, reason: 'entries must survive the batch');
+      expect(s.entries.first.sets.length, 2, reason: 'sets must survive too');
+    }
   });
 
   testWidgets('companion progress sheet renders a companion\'s data',

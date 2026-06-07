@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -24,6 +26,10 @@ Future<void> main() async {
   final sync = SyncService(db: db, identity: identity);
   final store = ArcStore(db: db, identity: identity, sync: sync);
   await store.init();
+
+  // Sync on launch (background): push anything left dirty from a previous
+  // session and pull companions' latest. Failures surface via a toast.
+  unawaited(store.autoSync());
 
   runApp(ArcAppRoot(store: store));
 }

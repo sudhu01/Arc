@@ -33,8 +33,8 @@ class _CompanionProgressSheetState extends State<CompanionProgressSheet> {
     final lifts = d.exercises
         .where((e) => records[e.id]?.history.isNotEmpty ?? false)
         .toList()
-      ..sort((a, b) => (records[b.id]?.best?.score ?? 0)
-          .compareTo(records[a.id]?.best?.score ?? 0));
+      ..sort((a, b) => (records[b.id]?.best?.score ?? 0.0)
+          .compareTo(records[a.id]?.best?.score ?? 0.0));
     final chartLifts = lifts.take(3).toList();
     final sel = _sel ?? (chartLifts.isNotEmpty ? chartLifts.first.id : null);
     final selRec = sel == null ? null : records[sel];
@@ -108,7 +108,7 @@ class _CompanionProgressSheetState extends State<CompanionProgressSheet> {
                     crossAxisAlignment: CrossAxisAlignment.baseline,
                     textBaseline: TextBaseline.alphabetic,
                     children: [
-                      Text('${selRec.best!.score}',
+                      Text(ArcData.fmtScore(selRec.best!.score),
                           style: AppText.mono(
                               size: 34, weight: FontWeight.w700, height: 1)),
                       const SizedBox(width: 8),
@@ -124,7 +124,7 @@ class _CompanionProgressSheetState extends State<CompanionProgressSheet> {
                             const ArcIcon('arrowUp',
                                 size: 13, color: AppColors.up),
                             const SizedBox(width: 3),
-                            Text('+$selDelta',
+                            Text('+${ArcData.fmtScore(selDelta)}',
                                 style: AppText.sora(
                                     size: 13,
                                     weight: FontWeight.w700,
@@ -133,9 +133,15 @@ class _CompanionProgressSheetState extends State<CompanionProgressSheet> {
                         ),
                     ],
                   ),
-                  const SizedBox(height: 4),
-                  LineChart(
-                      data: selHist.map((h) => h.score).toList(), height: 120),
+                  const SizedBox(height: 8),
+                  ProgressChart(
+                    points: [
+                      for (final h in selHist)
+                        ProgressPoint(ArcData.parseISO(h.date), h.score),
+                    ],
+                    unit: selRec.ex.isBodyweight ? 'reps' : 'kg',
+                    height: 130,
+                  ),
                 ],
               ),
             ),
@@ -283,18 +289,24 @@ class _PrCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Text(isBw ? '${r.best!.reps}' : '${r.best!.score}',
-                  style:
-                      AppText.mono(size: 30, weight: FontWeight.w700, height: 1)),
-              const SizedBox(width: 4),
-              Text(isBw ? 'reps' : 'kg',
-                  style: AppText.sora(
-                      size: 13, weight: FontWeight.w600, color: AppColors.muted)),
-            ],
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Text(isBw ? '${r.best!.reps}' : ArcData.fmtScore(r.best!.score),
+                    style: AppText.mono(
+                        size: 30, weight: FontWeight.w700, height: 1)),
+                const SizedBox(width: 4),
+                Text(isBw ? 'reps' : 'kg',
+                    style: AppText.sora(
+                        size: 13,
+                        weight: FontWeight.w600,
+                        color: AppColors.muted)),
+              ],
+            ),
           ),
           const SizedBox(height: 8),
           Text(r.ex.name,

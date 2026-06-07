@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../data/arc_data.dart';
+import '../data/models.dart';
 import '../data/store.dart';
 import '../sheets/sheet_actions.dart';
 import '../theme/app_theme.dart';
@@ -18,6 +19,16 @@ class Dashboard extends StatefulWidget {
 
 class _DashboardState extends State<Dashboard> {
   String? _sel;
+  final _searchCtl = TextEditingController();
+  final _searchFocus = FocusNode();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchCtl.dispose();
+    _searchFocus.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -31,18 +42,33 @@ class _DashboardState extends State<Dashboard> {
     final greet =
         hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
 
-    final lifts = ['bench', 'squat', 'deadlift']
-        .where((id) => records[id] != null && records[id]!.history.isNotEmpty)
-        .toList();
-    final sel = _sel ??
-        (lifts.isNotEmpty
-            ? lifts.first
-            : (exercises.isNotEmpty ? exercises.first.id : null));
+    // Exercises the user has actually logged, ranked so the heaviest 1RM
+    // surfaces first; bodyweight lifts (no 1RM) sort to the back.
+    final logged = exercises
+        .where((e) => records[e.id]?.history.isNotEmpty ?? false)
+        .toList()
+      ..sort((a, b) {
+        final byUnit =
+            (a.isBodyweight ? 1 : 0).compareTo(b.isBodyweight ? 1 : 0);
+        if (byUnit != 0) return byUnit;
+        return (records[b.id]!.best?.score ?? 0.0)
+            .compareTo(records[a.id]!.best?.score ?? 0.0);
+      });
+    final defaultSel = logged.isNotEmpty ? logged.first.id : null;
+    final sel = (_sel != null && (records[_sel]?.history.isNotEmpty ?? false))
+        ? _sel
+        : defaultSel;
     final selRec = sel == null ? null : records[sel];
-    final selHist = selRec?.history ?? [];
+    final selHist = selRec?.history ?? const <RecordPoint>[];
+    final selBw = selRec?.ex.isBodyweight ?? false;
     final selDelta = selHist.length > 1
         ? selHist[selHist.length - 1].score - selHist[selHist.length - 2].score
         : 0;
+
+    final query = _query.trim().toLowerCase();
+    final results = query.isEmpty
+        ? const <Exercise>[]
+        : logged.where((e) => e.name.toLowerCase().contains(query)).toList();
 
     // recent PRs
     final prList = exercises
@@ -144,9 +170,9 @@ class _DashboardState extends State<Dashboard> {
             ),
           )
         else ...[
-        // progress chart card
+        // strength progress — searchable 1RM over time
         ArcCard(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -159,57 +185,29 @@ class _DashboardState extends State<Dashboard> {
                 ],
               ),
               const SizedBox(height: 12),
-              Segmented(
-                options: lifts
-                    .map((id) =>
-                        SegOption(id, records[id]!.ex.name.split(' ').first))
-                    .toList(),
-                value: sel ?? '',
-                onChanged: (v) => setState(() => _sel = v),
-              ),
-              const SizedBox(height: 14),
-              if (selRec != null && selRec.best != null)
-                GestureDetector(
-                  onTap: () => Sheets.openPR(context, sel!),
-                  behavior: HitTestBehavior.opaque,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.baseline,
-                        textBaseline: TextBaseline.alphabetic,
-                        children: [
-                          Text('${selRec.best!.score}',
-                              style: AppText.mono(
-                                  size: 34, weight: FontWeight.w700, height: 1)),
-                          const SizedBox(width: 8),
-                          Text('kg est. 1RM',
-                              style: AppText.sora(
-                                  size: 14,
-                                  weight: FontWeight.w600,
-                                  color: AppColors.muted)),
-                          const Spacer(),
-                          if (selDelta > 0)
-                            Row(
-                              children: [
-                                const ArcIcon('arrowUp',
-                                    size: 13, color: AppColors.up),
-                                const SizedBox(width: 3),
-                                Text('+$selDelta',
-                                    style: AppText.sora(
-                                        size: 13,
-                                        weight: FontWeight.w700,
-                                        color: AppColors.up)),
-                              ],
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      LineChart(
-                          data: selHist.map((h) => h.score).toList(),
-                          height: 120),
-                    ],
-                  ),
+              _searchField(),
+              if (results.isNotEmpty)
+                ..._resultRows(results, records)
+              else if (query.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(2, 20, 2, 6),
+                  child: Text('No logged exercise matches that search.',
+                      style: AppText.sora(
+                          size: 13,
+                          weight: FontWeight.w500,
+                          color: AppColors.muted)),
+                )
+              else if (selRec != null && selRec.best != null)
+                _selectedProgress(
+                    context, sel!, selRec, selHist, selBw, selDelta)
+              else
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(2, 20, 2, 6),
+                  child: Text('Log a weighted set to start tracking your 1RM.',
+                      style: AppText.sora(
+                          size: 13,
+                          weight: FontWeight.w500,
+                          color: AppColors.muted)),
                 ),
             ],
           ),
@@ -258,20 +256,27 @@ class _DashboardState extends State<Dashboard> {
                         ],
                       ),
                       const SizedBox(height: 8),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.baseline,
-                        textBaseline: TextBaseline.alphabetic,
-                        children: [
-                          Text(isBw ? '${r.best!.reps}' : '${r.best!.score}',
-                              style: AppText.mono(
-                                  size: 30, weight: FontWeight.w700, height: 1)),
-                          const SizedBox(width: 4),
-                          Text(isBw ? 'reps' : 'kg',
-                              style: AppText.sora(
-                                  size: 13,
-                                  weight: FontWeight.w600,
-                                  color: AppColors.muted)),
-                        ],
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.baseline,
+                          textBaseline: TextBaseline.alphabetic,
+                          children: [
+                            Text(
+                                isBw
+                                    ? '${r.best!.reps}'
+                                    : ArcData.fmtScore(r.best!.score),
+                                style: AppText.mono(
+                                    size: 30, weight: FontWeight.w700, height: 1)),
+                            const SizedBox(width: 4),
+                            Text(isBw ? 'reps' : 'kg',
+                                style: AppText.sora(
+                                    size: 13,
+                                    weight: FontWeight.w600,
+                                    color: AppColors.muted)),
+                          ],
+                        ),
                       ),
                       const SizedBox(height: 8),
                       Text(r.ex.name,
@@ -316,6 +321,181 @@ class _DashboardState extends State<Dashboard> {
         const SizedBox(height: 8),
         ],
       ],
+    );
+  }
+
+  Widget _searchField() {
+    final has = _query.isNotEmpty;
+    return Container(
+      height: 42,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: const BoxDecoration(
+        color: AppColors.surface2,
+        borderRadius: AppRadii.rMd,
+      ),
+      child: Row(
+        children: [
+          const ArcIcon('search', size: 18, color: AppColors.faint),
+          const SizedBox(width: 8),
+          Expanded(
+            child: TextField(
+              controller: _searchCtl,
+              focusNode: _searchFocus,
+              onChanged: (v) => setState(() => _query = v),
+              cursorColor: AppColors.accentStrong,
+              style: AppText.sora(size: 14, weight: FontWeight.w500),
+              decoration: InputDecoration(
+                isCollapsed: true,
+                border: InputBorder.none,
+                hintText: 'Search your exercises',
+                hintStyle: AppText.sora(
+                    size: 14, weight: FontWeight.w500, color: AppColors.faint),
+              ),
+            ),
+          ),
+          if (has)
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () {
+                _searchCtl.clear();
+                _searchFocus.unfocus();
+                setState(() => _query = '');
+              },
+              child: const Padding(
+                padding: EdgeInsets.only(left: 6),
+                child: ArcIcon('x', size: 16, color: AppColors.faint),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _resultRows(
+      List<Exercise> results, Map<String, ExerciseRecord> records) {
+    final shown = results.take(8).toList();
+    final out = <Widget>[const SizedBox(height: 6)];
+    for (var i = 0; i < shown.length; i++) {
+      final ex = shown[i];
+      out.add(_resultRow(ex, records[ex.id]!));
+      if (i != shown.length - 1) {
+        out.add(Container(height: 1, color: AppColors.line));
+      }
+    }
+    return out;
+  }
+
+  Widget _resultRow(Exercise ex, ExerciseRecord rec) {
+    final isBw = ex.isBodyweight;
+    return PressScale(
+      scale: 0.99,
+      onTap: () {
+        _searchCtl.clear();
+        _searchFocus.unfocus();
+        setState(() {
+          _sel = ex.id;
+          _query = '';
+        });
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 11),
+        child: Row(
+          children: [
+            GroupDot(ex.group),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(ex.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppText.sora(size: 14.5, weight: FontWeight.w600)),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              isBw
+                  ? '${rec.best!.reps} reps'
+                  : '${ArcData.fmtScore(rec.best!.score)} kg',
+              style: AppText.mono(
+                  size: 13, weight: FontWeight.w600, color: AppColors.muted),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _selectedProgress(BuildContext context, String sel,
+      ExerciseRecord selRec, List<RecordPoint> selHist, bool selBw, num selDelta) {
+    final ex = selRec.ex;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => Sheets.openPR(context, sel),
+      child: Padding(
+        padding: const EdgeInsets.only(top: 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                GroupDot(ex.group),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(ex.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.sora(size: 15.5, weight: FontWeight.w700)),
+                ),
+                const ArcIcon('chevR', size: 18, color: AppColors.faint),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.baseline,
+                      textBaseline: TextBaseline.alphabetic,
+                      children: [
+                        Text(
+                            selBw
+                                ? '${selRec.best!.reps}'
+                                : ArcData.fmtScore(selRec.best!.score),
+                            style: AppText.mono(
+                                size: 34, weight: FontWeight.w700, height: 1)),
+                        const SizedBox(width: 8),
+                        Text(selBw ? 'best reps' : 'kg est. 1RM',
+                            style: AppText.sora(
+                                size: 14,
+                                weight: FontWeight.w600,
+                                color: AppColors.muted)),
+                      ],
+                    ),
+                  ),
+                ),
+                if (selDelta > 0) ...[
+                  const SizedBox(width: 8),
+                  const ArcIcon('arrowUp', size: 13, color: AppColors.up),
+                  const SizedBox(width: 3),
+                  Text('+${ArcData.fmtScore(selDelta)}',
+                      style: AppText.sora(
+                          size: 13, weight: FontWeight.w700, color: AppColors.up)),
+                ],
+              ],
+            ),
+            const SizedBox(height: 8),
+            ProgressChart(
+              points: [
+                for (final h in selHist)
+                  ProgressPoint(ArcData.parseISO(h.date), h.score),
+              ],
+              unit: selBw ? 'reps' : 'kg',
+              height: 150,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

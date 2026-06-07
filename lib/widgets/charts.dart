@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 
@@ -309,4 +311,248 @@ class _BarsPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_BarsPainter old) => old.data != data;
+}
+
+/// One session in a progression chart: a measured [value] on its [date].
+class ProgressPoint {
+  final DateTime date;
+  final double value;
+  const ProgressPoint(this.date, this.value);
+}
+
+/// Line chart of a per-session metric (e.g. max weight) with real axes:
+/// a labelled value axis on the left and a time axis along the bottom.
+///
+/// Unlike a sparkline, the X position of each session is spaced by the actual
+/// elapsed days between sessions, and Y is zoomed to the data's own range (not
+/// forced through zero) and labelled, so every lift shows its genuine trend
+/// instead of a normalised swoosh.
+class ProgressChart extends StatelessWidget {
+  final List<ProgressPoint> points; // chronological, earliest first
+  final String unit; // 'kg' | 'reps' — shown on the top value label
+  final double height;
+
+  const ProgressChart({
+    super.key,
+    required this.points,
+    this.unit = 'kg',
+    this.height = 150,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: height,
+      width: double.infinity,
+      child: LayoutBuilder(
+        builder: (context, c) {
+          if (points.isEmpty || c.maxWidth == 0) return const SizedBox.shrink();
+          return CustomPaint(
+            size: Size(c.maxWidth, height),
+            painter: _ProgressPainter(points: points, unit: unit),
+          );
+        },
+      ),
+    );
+  }
+}
+
+const _monShort = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+];
+
+class _ProgressPainter extends CustomPainter {
+  final List<ProgressPoint> points;
+  final String unit;
+  _ProgressPainter({required this.points, required this.unit});
+
+  static String _fmt(double v) =>
+      v % 1 == 0 ? v.toInt().toString() : v.toStringAsFixed(1);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width, h = size.height;
+
+    // ── value (Y) scale: nice rounded bounds, zoomed to the data range ──
+    final lo = points.map((p) => p.value).reduce(math.min);
+    final hi = points.map((p) => p.value).reduce(math.max);
+    final (axisLo, axisHi, step) = _niceScale(lo, hi);
+    final grid = <double>[];
+    for (var v = axisLo; v <= axisHi + step * 0.5; v += step) {
+      grid.add(double.parse(v.toStringAsFixed(5))); // tame float drift
+    }
+
+    TextPainter ylab(String s) => TextPainter(
+          text: TextSpan(
+            text: s,
+            style: AppText.mono(
+                size: 10.5, weight: FontWeight.w600, color: AppColors.faint),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+
+    // gutter width sized to the widest value label (incl. unit on the top one)
+    var gutterW = 0.0;
+    for (final g in grid) {
+      final isTop = g == grid.last;
+      final tp = ylab(isTop ? '${_fmt(g)} $unit' : _fmt(g));
+      if (tp.width > gutterW) gutterW = tp.width;
+    }
+
+    final padL = gutterW + 8;
+    const padR = 8.0, padT = 12.0, padB = 20.0;
+    final innerW = (w - padL - padR).clamp(1.0, double.infinity);
+    final innerH = (h - padT - padB).clamp(1.0, double.infinity);
+
+    double y(double v) =>
+        padT + innerH - ((v - axisLo) / (axisHi - axisLo)) * innerH;
+
+    // ── date (X) scale: positions spaced by real elapsed time ──
+    final tMin = points.first.date.millisecondsSinceEpoch;
+    final tMax = points.last.date.millisecondsSinceEpoch;
+    final tSpan = (tMax - tMin).toDouble();
+    double x(int i) {
+      if (points.length == 1) return padL + innerW / 2;
+      if (tSpan <= 0) return padL + (i / (points.length - 1)) * innerW;
+      return padL +
+          ((points[i].date.millisecondsSinceEpoch - tMin) / tSpan) * innerW;
+    }
+
+    // ── gridlines + Y labels ──
+    final gridPaint = Paint()
+      ..color = AppColors.line
+      ..strokeWidth = 1;
+    for (final g in grid) {
+      final gy = y(g);
+      const dash = 2.0, gap = 5.0;
+      var dx = padL;
+      while (dx < w - padR) {
+        canvas.drawLine(Offset(dx, gy),
+            Offset((dx + dash).clamp(0, w - padR), gy), gridPaint);
+        dx += dash + gap;
+      }
+      final isTop = g == grid.last;
+      final tp = ylab(isTop ? '${_fmt(g)} $unit' : _fmt(g));
+      tp.paint(canvas, Offset(padL - 8 - tp.width, gy - tp.height / 2));
+    }
+
+    final pts = [
+      for (var i = 0; i < points.length; i++) Offset(x(i), y(points[i].value))
+    ];
+
+    // ── area fill under the line ──
+    if (pts.length > 1) {
+      final area = Path()..moveTo(pts.first.dx, pts.first.dy);
+      for (var i = 1; i < pts.length; i++) {
+        area.lineTo(pts[i].dx, pts[i].dy);
+      }
+      area
+        ..lineTo(pts.last.dx, padT + innerH)
+        ..lineTo(pts.first.dx, padT + innerH)
+        ..close();
+      canvas.drawPath(
+        area,
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              AppColors.accent.withValues(alpha: 0.22),
+              AppColors.accent.withValues(alpha: 0.0),
+            ],
+          ).createShader(Rect.fromLTWH(padL, padT, innerW, innerH)),
+      );
+    }
+
+    // ── line: straight segments between real sessions (no distortion) ──
+    final line = Path()..moveTo(pts.first.dx, pts.first.dy);
+    for (var i = 1; i < pts.length; i++) {
+      line.lineTo(pts[i].dx, pts[i].dy);
+    }
+    canvas.drawPath(
+      line,
+      Paint()
+        ..color = AppColors.accent
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.5
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round,
+    );
+
+    // ── a dot on every session, the latest one emphasised ──
+    for (var i = 0; i < pts.length; i++) {
+      final last = i == pts.length - 1;
+      final r = last ? 4.0 : 3.0;
+      canvas.drawCircle(pts[i], r, Paint()..color = AppColors.surface);
+      canvas.drawCircle(
+        pts[i],
+        r,
+        Paint()
+          ..color = AppColors.accent
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2,
+      );
+    }
+
+    // ── X (date) labels: first + last + evenly sampled middles, no overlap ──
+    final maxLabels = (innerW / 58).floor().clamp(1, points.length);
+    for (final i in _tickIndices(points.length, maxLabels)) {
+      final d = points[i].date;
+      final tp = TextPainter(
+        text: TextSpan(
+          text: '${_monShort[d.month - 1]} ${d.day}',
+          style: AppText.sora(
+              size: 10.5, weight: FontWeight.w500, color: AppColors.faint),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      final maxX = (w - padR - tp.width).clamp(padL, double.infinity);
+      final lx = (pts[i].dx - tp.width / 2).clamp(padL, maxX);
+      tp.paint(canvas, Offset(lx, h - padB + 6));
+    }
+  }
+
+  @override
+  bool shouldRepaint(_ProgressPainter old) =>
+      old.points != points || old.unit != unit;
+}
+
+/// Evenly spaced tick indices over `0..n-1`, always including the endpoints.
+List<int> _tickIndices(int n, int k) {
+  if (n <= 1) return n == 1 ? const [0] : const [];
+  if (k >= n) return [for (var i = 0; i < n; i++) i];
+  if (k <= 1) return [n - 1];
+  final out = <int>{};
+  for (var j = 0; j < k; j++) {
+    out.add((j * (n - 1) / (k - 1)).round());
+  }
+  return out.toList()..sort();
+}
+
+/// "Nice" axis bounds and tick step covering [lo, hi], zoomed to the data
+/// (bounds are not forced to zero) so small differences stay legible.
+(double, double, double) _niceScale(double lo, double hi, [int ticks = 4]) {
+  if (hi <= lo) {
+    final pad = lo == 0 ? 1.0 : lo.abs() * 0.1;
+    lo -= pad;
+    hi += pad;
+  }
+  final range = _niceNum(hi - lo, false);
+  final step = _niceNum(range / (ticks - 1), true);
+  final niceLo = (lo / step).floorToDouble() * step;
+  final niceHi = (hi / step).ceilToDouble() * step;
+  return (niceLo, niceHi, step);
+}
+
+double _niceNum(double range, bool round) {
+  final exp = (math.log(range) / math.ln10).floor();
+  final frac = range / math.pow(10, exp);
+  final double nf;
+  if (round) {
+    nf = frac < 1.5 ? 1 : (frac < 3 ? 2 : (frac < 7 ? 5 : 10));
+  } else {
+    nf = frac <= 1 ? 1 : (frac <= 2 ? 2 : (frac <= 5 ? 5 : 10));
+  }
+  return nf * math.pow(10, exp).toDouble();
 }

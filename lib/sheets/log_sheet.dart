@@ -60,11 +60,11 @@ class _LogSheetState extends State<LogSheet> {
   }
 
   DraftSet _makeSet(String exId) {
-    final last = store.lastSetFor(exId);
+    final best = store.bestSetFor(exId);
     final ex = store.exById(exId)!;
     return DraftSet(
-      weight: ex.unit == 'bw' ? 0 : (last?.weight ?? 45),
-      reps: last?.reps ?? 8,
+      weight: ex.unit == 'bw' ? 0 : (best?.weight ?? 45),
+      reps: best?.reps ?? 8,
       id: ArcData.uid('set'),
     );
   }
@@ -323,7 +323,13 @@ class _LogSheetState extends State<LogSheet> {
           const SizedBox(height: 10),
           // add set
           GestureDetector(
-            onTap: () => setState(() => e.sets.add(_makeSet(e.exerciseId))),
+            onTap: () => setState(() {
+              final prev = e.sets.last;
+              e.sets.add(DraftSet(
+                  weight: prev.weight,
+                  reps: prev.reps,
+                  id: ArcData.uid('set')));
+            }),
             child: Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 9),

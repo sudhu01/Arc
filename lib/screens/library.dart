@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import '../data/arc_data.dart';
 import '../data/store.dart';
 import '../sheets/sheet_actions.dart';
 import '../theme/app_theme.dart';
@@ -142,7 +143,7 @@ class _LibraryRow extends StatelessWidget {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Text(isBw ? '${best.reps}' : '${best.score}',
+                  Text(isBw ? '${best.reps}' : ArcData.fmtScore(best.score),
                       style: AppText.mono(size: 16, weight: FontWeight.w700)),
                   Text(isBw ? 'reps' : 'kg 1RM',
                       style: AppText.sora(

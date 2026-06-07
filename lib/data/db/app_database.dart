@@ -348,7 +348,7 @@ class AppDatabase {
   Future<void> upsertSessionTree(Session s, String ownerId,
       {bool dirty = true}) async {
     await db.transaction((txn) async {
-      txn.insert(
+      await txn.insert(
         'sessions',
         {
           'id': s.id,
@@ -365,7 +365,7 @@ class AppDatabase {
       await txn.delete('entries', where: 'session_id = ?', whereArgs: [s.id]);
       for (var ei = 0; ei < s.entries.length; ei++) {
         final e = s.entries[ei];
-        txn.insert('entries', {
+        await txn.insert('entries', {
           'id': e.id,
           'session_id': s.id,
           'exercise_id': e.exerciseId,
@@ -374,7 +374,7 @@ class AppDatabase {
         });
         for (var si = 0; si < e.sets.length; si++) {
           final set = e.sets[si];
-          txn.insert('sets', {
+          await txn.insert('sets', {
             'id': set.id,
             'entry_id': e.id,
             'weight': set.weight,
@@ -469,7 +469,7 @@ class AppDatabase {
     final id = p['id'] as String;
     if (await _isStale('sessions', id, updatedAt)) return;
     await db.transaction((txn) async {
-      txn.insert(
+      await txn.insert(
         'sessions',
         {
           'id': id,
@@ -488,7 +488,7 @@ class AppDatabase {
       for (var ei = 0; ei < entries.length; ei++) {
         final e = entries[ei] as Map<String, dynamic>;
         final eid = e['id'] as String;
-        txn.insert('entries', {
+        await txn.insert('entries', {
           'id': eid,
           'session_id': id,
           'exercise_id': e['exercise_id'],
@@ -498,7 +498,7 @@ class AppDatabase {
         final sets = (e['sets'] as List?) ?? const [];
         for (var si = 0; si < sets.length; si++) {
           final s = sets[si] as Map<String, dynamic>;
-          txn.insert('sets', {
+          await txn.insert('sets', {
             'id': s['id'],
             'entry_id': eid,
             'weight': (s['weight'] as num).toDouble(),

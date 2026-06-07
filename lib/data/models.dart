@@ -55,14 +55,16 @@ class Session {
 /// A single point in an exercise's progression history.
 class RecordPoint {
   final String date;
-  final int score; // est. 1RM, or reps for bodyweight
-  final double weight;
+  final double score; // est. 1RM (1-decimal precision), or reps for bodyweight
+  final double weight; // weight of the top-scoring set
+  final double maxWeight; // heaviest weight lifted that session (0 for bodyweight)
   final int reps;
 
   const RecordPoint({
     required this.date,
     required this.score,
     required this.weight,
+    required this.maxWeight,
     required this.reps,
   });
 }

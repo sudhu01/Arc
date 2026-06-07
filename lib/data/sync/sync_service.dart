@@ -7,6 +7,8 @@
 //
 // The device SQLite stays the source of truth; the server is a dumb relay.
 
+import 'package:flutter/foundation.dart';
+
 import '../db/app_database.dart';
 import '../identity/identity_service.dart';
 import '../models.dart';
@@ -115,19 +117,26 @@ class SyncService {
         final resp = await api.pullSelf(token, cursor);
         final changes = (resp['changes'] as List?) ?? const [];
         for (final raw in changes) {
-          final c = (raw as Map).cast<String, dynamic>();
-          final type = c['object_type'] as String;
-          final payload = (c['payload'] as Map?)?.cast<String, dynamic>() ?? {};
-          final updatedAt = (c['updated_at'] as num).toInt();
-          final deleted = c['deleted'] == true;
-          if (type == 'exercise') {
-            await _db.applyRemoteExercise(_me, payload,
-                updatedAt: updatedAt, deleted: deleted);
-          } else if (type == 'session') {
-            await _db.applyRemoteSession(_me, payload,
-                updatedAt: updatedAt, deleted: deleted);
+          // Isolate each change: one malformed/unapplyable object must never
+          // abort the whole restore and silently drop everything after it.
+          try {
+            final c = (raw as Map).cast<String, dynamic>();
+            final type = c['object_type'] as String;
+            final payload =
+                (c['payload'] as Map?)?.cast<String, dynamic>() ?? {};
+            final updatedAt = (c['updated_at'] as num).toInt();
+            final deleted = c['deleted'] == true;
+            if (type == 'exercise') {
+              await _db.applyRemoteExercise(_me, payload,
+                  updatedAt: updatedAt, deleted: deleted);
+            } else if (type == 'session') {
+              await _db.applyRemoteSession(_me, payload,
+                  updatedAt: updatedAt, deleted: deleted);
+            }
+            applied++;
+          } catch (e) {
+            debugPrint('Arc restore: skipped a change: $e');
           }
-          applied++;
         }
         final newCursor = (resp['cursor'] as num?)?.toInt() ?? cursor;
         if (changes.isEmpty || newCursor == cursor) break; // caught up
@@ -263,20 +272,25 @@ class SyncService {
       final resp = await api.pull(token, cursor);
       final changes = (resp['changes'] as List?) ?? const [];
       for (final raw in changes) {
-        final c = (raw as Map).cast<String, dynamic>();
-        final owner = c['owner_id'] as String;
-        final type = c['object_type'] as String;
-        final payload = (c['payload'] as Map?)?.cast<String, dynamic>() ?? {};
-        final updatedAt = (c['updated_at'] as num).toInt();
-        final deleted = c['deleted'] == true;
-        if (type == 'exercise') {
-          await _db.applyRemoteExercise(owner, payload,
-              updatedAt: updatedAt, deleted: deleted);
-        } else if (type == 'session') {
-          await _db.applyRemoteSession(owner, payload,
-              updatedAt: updatedAt, deleted: deleted);
+        // Isolate each change so one bad companion object can't abort the pull.
+        try {
+          final c = (raw as Map).cast<String, dynamic>();
+          final owner = c['owner_id'] as String;
+          final type = c['object_type'] as String;
+          final payload = (c['payload'] as Map?)?.cast<String, dynamic>() ?? {};
+          final updatedAt = (c['updated_at'] as num).toInt();
+          final deleted = c['deleted'] == true;
+          if (type == 'exercise') {
+            await _db.applyRemoteExercise(owner, payload,
+                updatedAt: updatedAt, deleted: deleted);
+          } else if (type == 'session') {
+            await _db.applyRemoteSession(owner, payload,
+                updatedAt: updatedAt, deleted: deleted);
+          }
+          applied++;
+        } catch (e) {
+          debugPrint('Arc pull: skipped a change: $e');
         }
-        applied++;
       }
       final newCursor = (resp['cursor'] as num?)?.toInt() ?? cursor;
       if (newCursor != cursor) {

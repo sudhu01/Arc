@@ -40,7 +40,7 @@ lib/
   widgets/
     arc_icons.dart          Icon-name → Material rounded glyph mapping
     ui.dart                 Card, StatTile, Segmented, ArcStepper, ArcButton, Tag…
-    charts.dart             LineChart, Spark, Bars (CustomPainter)
+    charts.dart             LineChart, ProgressChart, Spark, Bars (CustomPainter)
     sheet.dart              Arc-styled bottom-sheet scaffold
   screens/                  Dashboard, Records, Calendar, Library, HomeShell
   sheets/                   PR detail, Day detail, Log workout, Add exercise
