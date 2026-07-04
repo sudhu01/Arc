@@ -408,6 +408,10 @@ class _ArcStepperState extends State<ArcStepper> {
         inputFormatters: [_DecimalInputFormatter(widget.decimals)],
         cursorColor: AppColors.accentStrong,
         onSubmitted: (_) => _commit(),
+        // On mobile, tapping outside a TextField does not drop focus by
+        // default, so without this the edit is never committed when the user
+        // taps "Save" — the set reverts to its pre-edit value.
+        onTapOutside: (_) => _focus.unfocus(),
         style: AppText.mono(size: 19, weight: FontWeight.w600),
         decoration: const InputDecoration(
           isCollapsed: true,

@@ -1,7 +1,9 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import '../data/arc_data.dart';
 import '../theme/app_theme.dart';
+import 'ui.dart';
 
 /// Smooth line chart of score (1RM / reps) over time, with area fill + end dot.
 class LineChart extends StatelessWidget {
@@ -347,11 +349,91 @@ class ProgressChart extends StatelessWidget {
       child: LayoutBuilder(
         builder: (context, c) {
           if (points.isEmpty || c.maxWidth == 0) return const SizedBox.shrink();
-          return CustomPaint(
-            size: Size(c.maxWidth, height),
-            painter: _ProgressPainter(points: points, unit: unit),
+          final size = Size(c.maxWidth, height);
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTapUp: (d) => _handleTap(context, d.localPosition, size),
+            child: CustomPaint(
+              size: size,
+              painter: _ProgressPainter(points: points, unit: unit),
+            ),
           );
         },
+      ),
+    );
+  }
+
+  /// Hit-tests the tap against every session's plotted X position (using the
+  /// same layout the painter draws with) and opens a value dialog for the
+  /// nearest one, as long as the tap actually landed near a point.
+  void _handleTap(BuildContext context, Offset local, Size size) {
+    final geo = _ProgressGeometry(points: points, unit: unit, size: size);
+    var bestI = 0;
+    var bestDist = double.infinity;
+    for (var i = 0; i < points.length; i++) {
+      final dist = (geo.x(i) - local.dx).abs();
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestI = i;
+      }
+    }
+    if (bestDist > 28) return;
+    showDialog<void>(
+      context: context,
+      barrierColor: const Color(0x6B0A0806),
+      builder: (_) => _SessionValueDialog(point: points[bestI], unit: unit),
+    );
+  }
+}
+
+/// Shows the exact value + date of a tapped session point.
+class _SessionValueDialog extends StatelessWidget {
+  final ProgressPoint point;
+  final String unit;
+  const _SessionValueDialog({required this.point, required this.unit});
+
+  @override
+  Widget build(BuildContext context) {
+    final valueLabel = unit == 'reps'
+        ? point.value.round().toString()
+        : _ProgressPainter._fmt(point.value);
+    return Dialog(
+      backgroundColor: AppColors.surface,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 56),
+      shape: const RoundedRectangleBorder(borderRadius: AppRadii.rLg),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(22, 20, 22, 18),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              ArcData.fmtDate(ArcData.iso(point.date), 'long'),
+              style: AppText.sora(
+                  size: 13.5, weight: FontWeight.w600, color: AppColors.muted),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Text(valueLabel,
+                    style: AppText.mono(size: 30, weight: FontWeight.w700)),
+                const SizedBox(width: 6),
+                Text(unit,
+                    style: AppText.sora(
+                        size: 14, weight: FontWeight.w600, color: AppColors.muted)),
+              ],
+            ),
+            const SizedBox(height: 18),
+            ArcButton(
+              label: 'Close',
+              variant: BtnVariant.quiet,
+              full: true,
+              onTap: () => Navigator.of(context).pop(),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -362,26 +444,29 @@ const _monShort = [
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
 ];
 
-class _ProgressPainter extends CustomPainter {
+/// Shared layout math for [ProgressChart]'s axes and point positions — used
+/// by both the painter (to draw) and the widget (to hit-test taps), so a tap
+/// always lands on the same coordinates the chart was drawn with.
+class _ProgressGeometry {
   final List<ProgressPoint> points;
-  final String unit;
-  _ProgressPainter({required this.points, required this.unit});
+  final double padL, padR, padT, padB;
+  final double innerW, innerH;
+  final double axisLo, axisHi;
+  final List<double> grid;
+  final double dateLabelW;
 
-  static String _fmt(double v) =>
-      v % 1 == 0 ? v.toInt().toString() : v.toStringAsFixed(1);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final w = size.width, h = size.height;
-
-    // ── value (Y) scale: nice rounded bounds, zoomed to the data range ──
+  factory _ProgressGeometry({
+    required List<ProgressPoint> points,
+    required String unit,
+    required Size size,
+  }) {
     final lo = points.map((p) => p.value).reduce(math.min);
     final hi = points.map((p) => p.value).reduce(math.max);
     final (axisLo, axisHi, step) = _niceScale(lo, hi);
-    final grid = <double>[];
-    for (var v = axisLo; v <= axisHi + step * 0.5; v += step) {
-      grid.add(double.parse(v.toStringAsFixed(5))); // tame float drift
-    }
+    final grid = <double>[
+      for (var v = axisLo; v <= axisHi + step * 0.5; v += step)
+        double.parse(v.toStringAsFixed(5)), // tame float drift
+    ];
 
     TextPainter ylab(String s) => TextPainter(
           text: TextSpan(
@@ -396,35 +481,100 @@ class _ProgressPainter extends CustomPainter {
     var gutterW = 0.0;
     for (final g in grid) {
       final isTop = g == grid.last;
-      final tp = ylab(isTop ? '${_fmt(g)} $unit' : _fmt(g));
+      final tp = ylab(isTop ? '${_ProgressPainter._fmt(g)} $unit' : _ProgressPainter._fmt(g));
       if (tp.width > gutterW) gutterW = tp.width;
     }
 
+    // date labels stack the day below the month ("Jun" / "3"), so reserve
+    // two lines of height at the bottom instead of one.
+    final dateTp = TextPainter(
+      text: TextSpan(
+        text: 'Jun\n1',
+        style: AppText.sora(size: 10.5, weight: FontWeight.w500, color: AppColors.faint),
+      ),
+      textAlign: TextAlign.center,
+      textDirection: TextDirection.ltr,
+    )..layout();
+
     final padL = gutterW + 8;
-    const padR = 8.0, padT = 12.0, padB = 20.0;
-    final innerW = (w - padL - padR).clamp(1.0, double.infinity);
-    final innerH = (h - padT - padB).clamp(1.0, double.infinity);
+    const padR = 8.0, padT = 12.0;
+    final padB = dateTp.height + 14;
+    final innerW = (size.width - padL - padR).clamp(1.0, double.infinity);
+    final innerH = (size.height - padT - padB).clamp(1.0, double.infinity);
 
-    double y(double v) =>
-        padT + innerH - ((v - axisLo) / (axisHi - axisLo)) * innerH;
+    return _ProgressGeometry._(
+      points: points,
+      padL: padL,
+      padR: padR,
+      padT: padT,
+      padB: padB,
+      innerW: innerW,
+      innerH: innerH,
+      axisLo: axisLo,
+      axisHi: axisHi,
+      grid: grid,
+      dateLabelW: dateTp.width,
+    );
+  }
 
-    // ── date (X) scale: positions spaced by real elapsed time ──
+  _ProgressGeometry._({
+    required this.points,
+    required this.padL,
+    required this.padR,
+    required this.padT,
+    required this.padB,
+    required this.innerW,
+    required this.innerH,
+    required this.axisLo,
+    required this.axisHi,
+    required this.grid,
+    required this.dateLabelW,
+  });
+
+  double x(int i) {
+    if (points.length == 1) return padL + innerW / 2;
     final tMin = points.first.date.millisecondsSinceEpoch;
     final tMax = points.last.date.millisecondsSinceEpoch;
     final tSpan = (tMax - tMin).toDouble();
-    double x(int i) {
-      if (points.length == 1) return padL + innerW / 2;
-      if (tSpan <= 0) return padL + (i / (points.length - 1)) * innerW;
-      return padL +
-          ((points[i].date.millisecondsSinceEpoch - tMin) / tSpan) * innerW;
-    }
+    if (tSpan <= 0) return padL + (i / (points.length - 1)) * innerW;
+    return padL +
+        ((points[i].date.millisecondsSinceEpoch - tMin) / tSpan) * innerW;
+  }
+
+  double y(double v) =>
+      padT + innerH - ((v - axisLo) / (axisHi - axisLo)) * innerH;
+}
+
+class _ProgressPainter extends CustomPainter {
+  final List<ProgressPoint> points;
+  final String unit;
+  _ProgressPainter({required this.points, required this.unit});
+
+  static String _fmt(double v) =>
+      v % 1 == 0 ? v.toInt().toString() : v.toStringAsFixed(1);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width, h = size.height;
+    final geo = _ProgressGeometry(points: points, unit: unit, size: size);
+    final padL = geo.padL, padR = geo.padR, padT = geo.padT, padB = geo.padB;
+    final innerW = geo.innerW, innerH = geo.innerH;
 
     // ── gridlines + Y labels ──
+    TextPainter ylab(String s) => TextPainter(
+          text: TextSpan(
+            text: s,
+            style: AppText.mono(
+                size: 10.5, weight: FontWeight.w600, color: AppColors.faint),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+
     final gridPaint = Paint()
       ..color = AppColors.line
       ..strokeWidth = 1;
-    for (final g in grid) {
-      final gy = y(g);
+    for (final g in geo.grid) {
+      final gy = geo.y(g);
       const dash = 2.0, gap = 5.0;
       var dx = padL;
       while (dx < w - padR) {
@@ -432,13 +582,14 @@ class _ProgressPainter extends CustomPainter {
             Offset((dx + dash).clamp(0, w - padR), gy), gridPaint);
         dx += dash + gap;
       }
-      final isTop = g == grid.last;
+      final isTop = g == geo.grid.last;
       final tp = ylab(isTop ? '${_fmt(g)} $unit' : _fmt(g));
       tp.paint(canvas, Offset(padL - 8 - tp.width, gy - tp.height / 2));
     }
 
     final pts = [
-      for (var i = 0; i < points.length; i++) Offset(x(i), y(points[i].value))
+      for (var i = 0; i < points.length; i++)
+        Offset(geo.x(i), geo.y(points[i].value))
     ];
 
     // ── area fill under the line ──
@@ -495,16 +646,18 @@ class _ProgressPainter extends CustomPainter {
       );
     }
 
-    // ── X (date) labels: first + last + evenly sampled middles, no overlap ──
-    final maxLabels = (innerW / 58).floor().clamp(1, points.length);
+    // ── X (date) labels: month on top, day below (no side-by-side overlap) ──
+    final maxLabels =
+        (innerW / (geo.dateLabelW + 20)).floor().clamp(1, points.length);
     for (final i in _tickIndices(points.length, maxLabels)) {
       final d = points[i].date;
       final tp = TextPainter(
         text: TextSpan(
-          text: '${_monShort[d.month - 1]} ${d.day}',
+          text: '${_monShort[d.month - 1]}\n${d.day}',
           style: AppText.sora(
               size: 10.5, weight: FontWeight.w500, color: AppColors.faint),
         ),
+        textAlign: TextAlign.center,
         textDirection: TextDirection.ltr,
       )..layout();
       final maxX = (w - padR - tp.width).clamp(padL, double.infinity);
