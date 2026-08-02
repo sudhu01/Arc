@@ -41,7 +41,7 @@ class _LibraryState extends State<Library> {
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Text('Exercises',
-                style: AppText.sora(
+                style: AppText.ui(
                     size: titleStyleSize,
                     weight: FontWeight.w700,
                     letterSpacing: -0.96)),
@@ -57,7 +57,7 @@ class _LibraryState extends State<Library> {
         ),
         const SizedBox(height: 16),
         Segmented.simple(
-          options: const ['All', 'Push', 'Pull', 'Legs'],
+          options: const ['All', ...ArcData.groups],
           value: _filter,
           onChanged: (v) => setState(() => _filter = v),
         ),
@@ -130,9 +130,9 @@ class _LibraryRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(exercise.name,
-                      style: AppText.sora(size: 15.5, weight: FontWeight.w600)),
+                      style: AppText.ui(size: 15.5, weight: FontWeight.w600)),
                   Text('${exercise.group} · trained $trained×',
-                      style: AppText.sora(
+                      style: AppText.ui(
                           size: 12,
                           weight: FontWeight.w500,
                           color: AppColors.faint)),
@@ -146,7 +146,7 @@ class _LibraryRow extends StatelessWidget {
                   Text(isBw ? '${best.reps}' : ArcData.fmtScore(best.score),
                       style: AppText.mono(size: 16, weight: FontWeight.w700)),
                   Text(isBw ? 'reps' : 'kg 1RM',
-                      style: AppText.sora(
+                      style: AppText.ui(
                           size: 10,
                           weight: FontWeight.w600,
                           color: AppColors.faint)),

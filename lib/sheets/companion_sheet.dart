@@ -52,17 +52,20 @@ class CompanionSheet extends StatelessWidget {
                 borderRadius: AppRadii.rMd,
                 border: Border.all(color: AppColors.line),
               ),
+              // The QR card stays white in both themes so scanners keep the
+              // contrast they need — which means the modules must use a fixed
+              // dark ink, not the active palette's (near-white in Midnight).
               child: QrImageView(
                 data: store.pairingUri,
                 size: 196,
                 backgroundColor: Colors.white,
                 eyeStyle: const QrEyeStyle(
                   eyeShape: QrEyeShape.square,
-                  color: AppColors.ink,
+                  color: ArcPalette.qrInk,
                 ),
                 dataModuleStyle: const QrDataModuleStyle(
                   dataModuleShape: QrDataModuleShape.square,
-                  color: AppColors.ink,
+                  color: ArcPalette.qrInk,
                 ),
               ),
             ),
@@ -77,10 +80,10 @@ class CompanionSheet extends StatelessWidget {
                     id.displayName?.isNotEmpty == true
                         ? id.displayName!
                         : 'Set your name',
-                    style: AppText.sora(size: 18, weight: FontWeight.w700),
+                    style: AppText.ui(size: 18, weight: FontWeight.w700),
                   ),
                   const SizedBox(width: 6),
-                  const ArcIcon('pencil', size: 15, color: AppColors.muted),
+                  ArcIcon('pencil', size: 15, color: AppColors.muted),
                 ],
               ),
             ),
@@ -126,7 +129,7 @@ class CompanionSheet extends StatelessWidget {
               textAlign: TextAlign.center,
               maxLines: 3,
               overflow: TextOverflow.ellipsis,
-              style: AppText.sora(
+              style: AppText.ui(
                 size: 11.5,
                 height: 1.35,
                 color:
@@ -151,7 +154,7 @@ class CompanionSheet extends StatelessWidget {
             child: Text(
               'No companions yet. Scan a friend’s code to connect — '
               'their workouts sync here once you’ve both accepted.',
-              style: AppText.sora(
+              style: AppText.ui(
                   size: 13.5, height: 1.4, color: AppColors.muted),
             ),
           )
@@ -184,7 +187,7 @@ class CompanionSheet extends StatelessWidget {
           child: Text(
             'Sync server · ${_host(store.serverUrl)}',
             textAlign: TextAlign.center,
-            style: AppText.sora(size: 12, color: AppColors.muted),
+            style: AppText.ui(size: 12, color: AppColors.muted),
           ),
         ),
         const SizedBox(height: 6),
@@ -209,7 +212,7 @@ class CompanionSheet extends StatelessWidget {
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.surface,
         title: Text('Sync server',
-            style: AppText.sora(size: 18, weight: FontWeight.w700)),
+            style: AppText.ui(size: 18, weight: FontWeight.w700)),
         content: TextField(
           controller: controller,
           autofocus: true,
@@ -245,7 +248,7 @@ class CompanionSheet extends StatelessWidget {
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.surface,
         title: Text('Restore account',
-            style: AppText.sora(size: 18, weight: FontWeight.w700)),
+            style: AppText.ui(size: 18, weight: FontWeight.w700)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -254,7 +257,7 @@ class CompanionSheet extends StatelessWidget {
               'Enter your 24-word recovery phrase to bring back your identity and '
               'pull your workouts down from the sync server. This replaces the '
               'data currently on this device.',
-              style: AppText.sora(size: 13, height: 1.4, color: AppColors.muted),
+              style: AppText.ui(size: 13, height: 1.4, color: AppColors.muted),
             ),
             const SizedBox(height: 14),
             TextField(
@@ -325,7 +328,7 @@ class CompanionSheet extends StatelessWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.surface,
-        title: Text('Your name', style: AppText.sora(size: 18, weight: FontWeight.w700)),
+        title: Text('Your name', style: AppText.ui(size: 18, weight: FontWeight.w700)),
         content: TextField(
           controller: controller,
           autofocus: true,
@@ -359,7 +362,7 @@ class CompanionSheet extends StatelessWidget {
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.surface,
         title: Text('Recovery phrase',
-            style: AppText.sora(size: 18, weight: FontWeight.w700)),
+            style: AppText.ui(size: 18, weight: FontWeight.w700)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -367,7 +370,7 @@ class CompanionSheet extends StatelessWidget {
             Text(
               'These 24 words restore your identity on a new device. '
               'Anyone who has them controls your account — never share them.',
-              style: AppText.sora(size: 13, height: 1.4, color: AppColors.muted),
+              style: AppText.ui(size: 13, height: 1.4, color: AppColors.muted),
             ),
             const SizedBox(height: 14),
             Container(
@@ -467,7 +470,7 @@ class _RequestRow extends StatelessWidget {
                 Expanded(
                   child: Text(
                     '${companion.displayName} wants to connect',
-                    style: AppText.sora(size: 14.5, weight: FontWeight.w600),
+                    style: AppText.ui(size: 14.5, weight: FontWeight.w600),
                   ),
                 ),
                 const Tag('Request'),
@@ -529,14 +532,14 @@ class _CompanionRow extends StatelessWidget {
             Container(
               width: 38,
               height: 38,
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 color: AppColors.surface2,
                 shape: BoxShape.circle,
               ),
               alignment: Alignment.center,
               child: Text(
                 _initials(companion.displayName),
-                style: AppText.sora(size: 14, weight: FontWeight.w700),
+                style: AppText.ui(size: 14, weight: FontWeight.w700),
               ),
             ),
             const SizedBox(width: 12),
@@ -548,7 +551,7 @@ class _CompanionRow extends StatelessWidget {
                   Text(companion.displayName,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: AppText.sora(size: 15, weight: FontWeight.w600)),
+                      style: AppText.ui(size: 15, weight: FontWeight.w600)),
                   const SizedBox(height: 3),
                   Text(CompanionSheet._shortId(companion.publicId),
                       style: AppText.mono(size: 11.5, color: AppColors.muted)),
@@ -557,7 +560,7 @@ class _CompanionRow extends StatelessWidget {
             ),
             Tag(statusLabel, color: statusColor, background: statusBg),
             IconButton(
-              icon: const ArcIcon('trash', size: 18, color: AppColors.muted),
+              icon: ArcIcon('trash', size: 18, color: AppColors.muted),
               onPressed: () => store.removeCompanion(companion.publicId),
             ),
           ],
@@ -707,12 +710,12 @@ class _ScannerPageState extends State<ScannerPage> {
         content: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const ArcIcon('x', size: 18, color: AppColors.toastInk),
+            ArcIcon('x', size: 18, color: AppColors.toastInk),
             const SizedBox(width: 9),
             Flexible(
               child: Text(
                 msg,
-                style: AppText.sora(
+                style: AppText.ui(
                     size: 14.5,
                     weight: FontWeight.w600,
                     color: AppColors.toastInk),
@@ -732,7 +735,7 @@ class _ScannerPageState extends State<ScannerPage> {
         foregroundColor: Colors.white,
         elevation: 0,
         title: Text('Scan companion code',
-            style: AppText.sora(size: 17, weight: FontWeight.w600, color: Colors.white)),
+            style: AppText.ui(size: 17, weight: FontWeight.w600, color: Colors.white)),
       ),
       body: Stack(
         alignment: Alignment.center,
@@ -778,7 +781,7 @@ class _ScannerPageState extends State<ScannerPage> {
                 Text(
                   'Point at a friend’s Arc QR code',
                   textAlign: TextAlign.center,
-                  style: AppText.sora(size: 14, color: Colors.white70),
+                  style: AppText.ui(size: 14, color: Colors.white70),
                 ),
                 const SizedBox(height: 16),
                 ArcButton(

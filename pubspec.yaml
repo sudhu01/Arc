@@ -72,11 +72,16 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
-  # Sora — the Surge design's display + body face (bundled variable font).
+  # Bundled variable fonts, shared by both themes:
+  #   Sora          — primary: display + body
+  #   Space Grotesk — secondary: numerals
   fonts:
     - family: Sora
       fonts:
         - asset: assets/fonts/Sora.ttf
+    - family: Space Grotesk
+      fonts:
+        - asset: assets/fonts/SpaceGrotesk.ttf
 
   # To add assets to your application, add an assets section, like this:
   # assets:

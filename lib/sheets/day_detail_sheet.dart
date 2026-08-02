@@ -31,13 +31,13 @@ class DayDetailSheet extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(0, 20, 0, 8),
         child: Column(
           children: [
-            const ArcIcon('dumbbell', size: 40, color: AppColors.faint),
+            ArcIcon('dumbbell', size: 40, color: AppColors.faint),
             const SizedBox(height: 14),
             Text('Rest day',
-                style: AppText.sora(size: 17, weight: FontWeight.w600)),
+                style: AppText.ui(size: 17, weight: FontWeight.w600)),
             const SizedBox(height: 4),
             Text('No workout logged for this day.',
-                style: AppText.sora(size: 14, color: AppColors.muted)),
+                style: AppText.ui(size: 14, color: AppColors.muted)),
             const SizedBox(height: 18),
             ArcButton(
                 label: 'Log a workout', icon: 'plus', full: true, onTap: edit),
@@ -75,7 +75,7 @@ class DayDetailSheet extends StatelessWidget {
             Flexible(
               child: Text(
                 '$totalSets sets · ${vol.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+$)'), (m) => '${m[1]},')} kg volume',
-                style: AppText.sora(
+                style: AppText.ui(
                     size: 13, weight: FontWeight.w500, color: AppColors.muted),
               ),
             ),
@@ -135,7 +135,7 @@ class _EntryCard extends StatelessWidget {
               GroupDot(exercise.group),
               const SizedBox(width: 8),
               Text(exercise.name,
-                  style: AppText.sora(size: 16, weight: FontWeight.w600)),
+                  style: AppText.ui(size: 16, weight: FontWeight.w600)),
             ],
           ),
           const SizedBox(height: 10),
@@ -146,7 +146,7 @@ class _EntryCard extends StatelessWidget {
               for (final s in sets)
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
-                  decoration: const BoxDecoration(
+                  decoration: BoxDecoration(
                     color: AppColors.surface2,
                     borderRadius: AppRadii.rSm,
                   ),

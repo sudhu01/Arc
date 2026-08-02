@@ -12,7 +12,22 @@ class ArcData {
     'Push': 'Push Day',
     'Pull': 'Pull Day',
     'Legs': 'Leg Day',
+    'Core': 'Core Day',
   };
+
+  /// Recovers the muscle group from a session title. Day titles are matched
+  /// first because "Leg Day" doesn't literally contain "Legs"; a bare group
+  /// name is the fallback for custom titles. Legacy titles that name no group
+  /// keep their historical `Legs` reading.
+  static String groupFromTitle(String title) {
+    for (final e in dayTitle.entries) {
+      if (title.contains(e.value)) return e.key;
+    }
+    for (final g in groups) {
+      if (title.contains(g)) return g;
+    }
+    return 'Legs';
+  }
 
   // ── Date helpers (local dates, no TZ drift) ─────────────────────────
 

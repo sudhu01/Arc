@@ -10,13 +10,24 @@ import '../widgets/ui.dart';
 import 'sheet_actions.dart';
 
 class PRDetailSheet extends StatelessWidget {
-  final String exId;
-  const PRDetailSheet({super.key, required this.exId});
+  /// Exercise to look up in the user's own store. Null when [record] is given.
+  final String? exId;
+
+  /// A record handed in directly — a companion's, which lives outside the
+  /// store. Read-only: the "Log" action is dropped.
+  final ExerciseRecord? record;
+
+  const PRDetailSheet({super.key, required String this.exId}) : record = null;
+
+  /// Read-only view of a record that isn't the user's own (companion progress).
+  const PRDetailSheet.forRecord({
+    super.key,
+    required ExerciseRecord this.record,
+  }) : exId = null;
 
   @override
   Widget build(BuildContext context) {
-    final store = context.watch<ArcStore>();
-    final rec = store.records[exId];
+    final rec = record ?? context.watch<ArcStore>().records[exId];
     if (rec == null || rec.best == null) return const SizedBox.shrink();
     final ex = rec.ex;
     final isBw = ex.isBodyweight;
@@ -45,7 +56,7 @@ class PRDetailSheet extends StatelessWidget {
             GroupDot(ex.group),
             const SizedBox(width: 8),
             Text(ex.group,
-                style: AppText.sora(
+                style: AppText.ui(
                     size: 13.5, weight: FontWeight.w600, color: AppColors.muted)),
             const SizedBox(width: 8),
             const Tag('Personal Record'),
@@ -56,7 +67,7 @@ class PRDetailSheet extends StatelessWidget {
         // hero number
         Container(
           padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             color: AppColors.accentSoft,
             borderRadius: AppRadii.rLg,
           ),
@@ -65,7 +76,7 @@ class PRDetailSheet extends StatelessWidget {
             children: [
               Text(
                 isBw ? 'BEST SET' : 'ESTIMATED 1RM',
-                style: AppText.sora(
+                style: AppText.ui(
                   size: 12.5,
                   weight: FontWeight.w700,
                   color: AppColors.accentStrong,
@@ -83,7 +94,7 @@ class PRDetailSheet extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                   Text(isBw ? 'reps' : 'kg',
-                      style: AppText.sora(
+                      style: AppText.ui(
                           size: 18,
                           weight: FontWeight.w700,
                           color: AppColors.accentStrong)),
@@ -92,7 +103,7 @@ class PRDetailSheet extends StatelessWidget {
               const SizedBox(height: 8),
               Text(
                 '${isBw ? '${best.reps} reps' : '${fmtW(best.weight)} kg × ${best.reps}'} · ${ArcData.fmtDate(best.date, 'long')}',
-                style: AppText.sora(
+                style: AppText.ui(
                     size: 14, weight: FontWeight.w500, color: AppColors.muted),
               ),
             ],
@@ -115,14 +126,14 @@ class PRDetailSheet extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(isBw ? 'Reps over time' : 'Max weight per session',
-                      style: AppText.sora(size: 13, weight: FontWeight.w600)),
+                      style: AppText.ui(size: 13, weight: FontWeight.w600)),
                   if (gain > 0)
                     Row(
                       children: [
-                        const ArcIcon('arrowUp', size: 13, color: AppColors.up),
+                        ArcIcon('arrowUp', size: 13, color: AppColors.up),
                         const SizedBox(width: 3),
                         Text('+${isBw ? gain : fmtW(gain.toDouble())} ${isBw ? 'reps' : 'kg'}',
-                            style: AppText.sora(
+                            style: AppText.ui(
                                 size: 12.5,
                                 weight: FontWeight.w700,
                                 color: AppColors.up)),
@@ -162,7 +173,7 @@ class PRDetailSheet extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.fromLTRB(2, 4, 2, 8),
           child: Text('PROGRESSION',
-              style: AppText.sora(
+              style: AppText.ui(
                   size: 13,
                   weight: FontWeight.w700,
                   color: AppColors.muted,
@@ -183,19 +194,20 @@ class PRDetailSheet extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 16),
-        ArcButton(
-          label: 'Log ${ex.name}',
-          icon: 'plus',
-          full: true,
-          onTap: () {
-            Navigator.of(context).maybePop();
-            Future.delayed(const Duration(milliseconds: 180), () {
-              if (context.mounted) {
-                Sheets.openLog(context, prefillExId: exId);
-              }
-            });
-          },
-        ),
+        if (exId != null)
+          ArcButton(
+            label: 'Log ${ex.name}',
+            icon: 'plus',
+            full: true,
+            onTap: () {
+              Navigator.of(context).maybePop();
+              Future.delayed(const Duration(milliseconds: 180), () {
+                if (context.mounted) {
+                  Sheets.openLog(context, prefillExId: exId);
+                }
+              });
+            },
+          ),
       ],
     );
   }
@@ -227,7 +239,7 @@ class _ProgressRow extends StatelessWidget {
                 SizedBox(
                   width: 64,
                   child: Text(ArcData.fmtDate(point.date),
-                      style: AppText.sora(
+                      style: AppText.ui(
                           size: 13.5,
                           weight: FontWeight.w500,
                           color: AppColors.muted)),
@@ -241,7 +253,7 @@ class _ProgressRow extends StatelessWidget {
                 ),
                 if (isPR) ...[
                   const SizedBox(width: 8),
-                  const ArcIcon('medal', size: 15, color: AppColors.accentStrong),
+                  ArcIcon('medal', size: 15, color: AppColors.accentStrong),
                 ],
                 const Spacer(),
                 if (!isBw)

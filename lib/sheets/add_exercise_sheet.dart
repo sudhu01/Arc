@@ -11,7 +11,7 @@ Widget _label(String text) => Padding(
       padding: const EdgeInsets.only(left: 2, bottom: 8),
       child: Text(
         text.toUpperCase(),
-        style: AppText.sora(
+        style: AppText.ui(
           size: _lblStyleSize,
           weight: FontWeight.w700,
           color: AppColors.muted,
@@ -180,13 +180,13 @@ class _ArcTextFieldState extends State<ArcTextField> {
               autofocus: widget.autofocus,
               onChanged: widget.onChanged,
               cursorColor: AppColors.accentStrong,
-              style: AppText.sora(size: 16.5, weight: FontWeight.w500),
+              style: AppText.ui(size: 16.5, weight: FontWeight.w500),
               decoration: InputDecoration(
                 isCollapsed: true,
                 contentPadding: const EdgeInsets.symmetric(vertical: 14),
                 border: InputBorder.none,
                 hintText: widget.hint,
-                hintStyle: AppText.sora(
+                hintStyle: AppText.ui(
                     size: 16.5, weight: FontWeight.w500, color: AppColors.faint),
               ),
             ),

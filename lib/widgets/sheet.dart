@@ -15,7 +15,7 @@ Future<T?> showArcSheet<T>({
     isScrollControlled: true,
     useRootNavigator: true,
     backgroundColor: Colors.transparent,
-    barrierColor: const Color(0x6B0A0806),
+    barrierColor: AppColors.scrim,
     builder: (ctx) => ArcSheetScaffold(
       title: title,
       full: full,
@@ -54,12 +54,10 @@ class ArcSheetScaffold extends StatelessWidget {
         child: Container(
           width: double.infinity,
           height: full ? maxH : null,
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             color: AppColors.surface,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
-            boxShadow: [
-              BoxShadow(color: Color(0x2E000000), blurRadius: 40, offset: Offset(0, -10)),
-            ],
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+            boxShadow: AppColors.sheetShadow,
           ),
           clipBehavior: Clip.antiAlias,
           child: Column(
@@ -84,7 +82,7 @@ class ArcSheetScaffold extends StatelessWidget {
                       Expanded(
                         child: Text(
                           title!,
-                          style: AppText.sora(
+                          style: AppText.ui(
                               size: 21,
                               weight: FontWeight.w700,
                               letterSpacing: -0.21),
@@ -95,7 +93,7 @@ class ArcSheetScaffold extends StatelessWidget {
                         child: Container(
                           width: 34,
                           height: 34,
-                          decoration: const BoxDecoration(
+                          decoration: BoxDecoration(
                             color: AppColors.surface2,
                             shape: BoxShape.circle,
                           ),

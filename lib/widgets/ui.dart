@@ -154,7 +154,7 @@ class ArcButton extends StatelessWidget {
           ],
           Text(
             label,
-            style: AppText.sora(
+            style: AppText.ui(
               size: fs,
               weight: FontWeight.w600,
               color: fg,
@@ -187,11 +187,11 @@ Future<bool> showArcConfirm({
 }) async {
   final ok = await showDialog<bool>(
     context: context,
-    barrierColor: const Color(0x6B0A0806),
+    barrierColor: AppColors.scrim,
     builder: (ctx) => Dialog(
       backgroundColor: AppColors.surface,
       insetPadding: const EdgeInsets.symmetric(horizontal: 40),
-      shape: const RoundedRectangleBorder(borderRadius: AppRadii.rLg),
+      shape: RoundedRectangleBorder(borderRadius: AppRadii.rLg),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
         child: Column(
@@ -199,11 +199,11 @@ Future<bool> showArcConfirm({
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(title,
-                style: AppText.sora(size: 18, weight: FontWeight.w700)),
+                style: AppText.ui(size: 18, weight: FontWeight.w700)),
             if (message != null) ...[
               const SizedBox(height: 8),
               Text(message,
-                  style: AppText.sora(
+                  style: AppText.ui(
                       size: 13.5, height: 1.4, color: AppColors.muted)),
             ],
             const SizedBox(height: 20),
@@ -272,7 +272,7 @@ class Segmented extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(3),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppColors.surface2,
         borderRadius: AppRadii.rMd,
       ),
@@ -297,7 +297,7 @@ class Segmented extends StatelessWidget {
                   o.label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: AppText.sora(
+                  style: AppText.ui(
                     size: 13.5,
                     weight: FontWeight.w600,
                     color: active ? AppColors.ink : AppColors.muted,
@@ -433,7 +433,7 @@ class _ArcStepperState extends State<ArcStepper> {
               Padding(
                 padding: const EdgeInsets.only(left: 3),
                 child: Text(widget.suffix!,
-                    style: AppText.sora(size: 12, color: AppColors.muted)),
+                    style: AppText.ui(size: 12, color: AppColors.muted)),
               ),
           ],
         ),
@@ -448,7 +448,7 @@ class _ArcStepperState extends State<ArcStepper> {
     }
 
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppColors.surface2,
         borderRadius: AppRadii.rMd,
       ),
@@ -516,7 +516,7 @@ class Tag extends StatelessWidget {
       ),
       child: Text(
         label.toUpperCase(),
-        style: AppText.sora(
+        style: AppText.ui(
           size: 11.5,
           weight: FontWeight.w700,
           color: color ?? AppColors.accentStrong,
@@ -540,7 +540,7 @@ class StatTile extends StatelessWidget {
     return Expanded(
       child: Container(
         padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           color: AppColors.surface2,
           borderRadius: AppRadii.rMd,
         ),
@@ -557,19 +557,19 @@ class StatTile extends StatelessWidget {
                 if (unit != null) ...[
                   const SizedBox(width: 3),
                   Text(unit!,
-                      style: AppText.sora(size: 11, weight: FontWeight.w600, color: AppColors.muted)),
+                      style: AppText.ui(size: 11, weight: FontWeight.w600, color: AppColors.muted)),
                 ],
               ],
             ),
             const SizedBox(height: 3),
             Text(label,
-                style: AppText.sora(
+                style: AppText.ui(
                     size: 11.5, weight: FontWeight.w600, color: AppColors.muted)),
             if (sub != null)
               Padding(
                 padding: const EdgeInsets.only(top: 1),
                 child: Text(sub!,
-                    style: AppText.sora(size: 11, color: AppColors.faint)),
+                    style: AppText.ui(size: 11, color: AppColors.faint)),
               ),
           ],
         ),
@@ -594,14 +594,14 @@ class SectionHead extends StatelessWidget {
         children: [
           Expanded(
             child: Text(title,
-                style: AppText.sora(
+                style: AppText.ui(
                     size: 19, weight: FontWeight.w700, letterSpacing: -0.38)),
           ),
           if (action != null)
             GestureDetector(
               onTap: onAction,
               child: Text(action!,
-                  style: AppText.sora(
+                  style: AppText.ui(
                       size: 13.5,
                       weight: FontWeight.w600,
                       color: AppColors.accentStrong)),

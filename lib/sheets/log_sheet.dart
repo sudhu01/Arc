@@ -108,7 +108,7 @@ class _LogSheetState extends State<LogSheet> {
             children: [
               Expanded(
                 child: Text(_title,
-                    style: AppText.sora(
+                    style: AppText.ui(
                         size: 21, weight: FontWeight.w700, letterSpacing: -0.21)),
               ),
               GestureDetector(
@@ -116,7 +116,7 @@ class _LogSheetState extends State<LogSheet> {
                 child: Container(
                   width: 34,
                   height: 34,
-                  decoration: const BoxDecoration(
+                  decoration: BoxDecoration(
                       color: AppColors.surface2, shape: BoxShape.circle),
                   child: Icon(ArcIcons.byName('x'),
                       size: 18, color: AppColors.muted),
@@ -151,11 +151,11 @@ class _LogSheetState extends State<LogSheet> {
                   padding: const EdgeInsets.symmetric(vertical: 26, horizontal: 10),
                   child: Column(
                     children: [
-                      const ArcIcon('dumbbell', size: 36, color: AppColors.faint),
+                      ArcIcon('dumbbell', size: 36, color: AppColors.faint),
                       const SizedBox(height: 10),
                       Text('No exercises yet. Add your first one.',
                           style:
-                              AppText.sora(size: 14.5, color: AppColors.muted)),
+                              AppText.ui(size: 14.5, color: AppColors.muted)),
                     ],
                   ),
                 ),
@@ -176,11 +176,14 @@ class _LogSheetState extends State<LogSheet> {
         // sticky footer
         Container(
           padding: const EdgeInsets.only(top: 6, bottom: 22),
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              colors: [Color(0x00FFFFFF), AppColors.surface],
+              colors: [
+                AppColors.surface.withValues(alpha: 0),
+                AppColors.surface,
+              ],
               stops: [0, 0.3],
             ),
           ),
@@ -220,7 +223,7 @@ class _LogSheetState extends State<LogSheet> {
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppColors.surface2,
         borderRadius: AppRadii.rMd,
       ),
@@ -234,9 +237,9 @@ class _LogSheetState extends State<LogSheet> {
           Column(
             children: [
               Text(ArcData.fmtDate(_draftDate, 'long'),
-                  style: AppText.sora(size: 16.5, weight: FontWeight.w700)),
+                  style: AppText.ui(size: 16.5, weight: FontWeight.w700)),
               Text(ArcData.relDate(_draftDate),
-                  style: AppText.sora(
+                  style: AppText.ui(
                       size: 12, weight: FontWeight.w600, color: AppColors.muted)),
             ],
           ),
@@ -270,7 +273,7 @@ class _LogSheetState extends State<LogSheet> {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(ex.name,
-                    style: AppText.sora(size: 16.5, weight: FontWeight.w700)),
+                    style: AppText.ui(size: 16.5, weight: FontWeight.w700)),
               ),
               GestureDetector(
                 onTap: () =>
@@ -278,7 +281,7 @@ class _LogSheetState extends State<LogSheet> {
                 child: Container(
                   width: 30,
                   height: 30,
-                  decoration: const BoxDecoration(
+                  decoration: BoxDecoration(
                       color: AppColors.surface2, shape: BoxShape.circle),
                   child: Icon(ArcIcons.byName('x'),
                       size: 16, color: AppColors.muted),
@@ -296,7 +299,7 @@ class _LogSheetState extends State<LogSheet> {
                   Expanded(
                     child: Center(
                       child: Text('WEIGHT',
-                          style: AppText.sora(
+                          style: AppText.ui(
                               size: 11,
                               weight: FontWeight.w700,
                               color: AppColors.faint,
@@ -306,7 +309,7 @@ class _LogSheetState extends State<LogSheet> {
                 Expanded(
                   child: Center(
                     child: Text('REPS',
-                        style: AppText.sora(
+                        style: AppText.ui(
                             size: 11,
                             weight: FontWeight.w700,
                             color: AppColors.faint,
@@ -341,10 +344,10 @@ class _LogSheetState extends State<LogSheet> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const ArcIcon('plus', size: 16, color: AppColors.accentStrong),
+                  ArcIcon('plus', size: 16, color: AppColors.accentStrong),
                   const SizedBox(width: 6),
                   Text('Add set',
-                      style: AppText.sora(
+                      style: AppText.ui(
                           size: 13.5,
                           weight: FontWeight.w600,
                           color: AppColors.accentStrong)),
@@ -394,7 +397,7 @@ class _LogSheetState extends State<LogSheet> {
         ),
         GestureDetector(
           onTap: () => setState(() => e.sets.removeAt(i)),
-          child: const SizedBox(
+          child: SizedBox(
             width: 34,
             height: 34,
             child: Icon(Icons.delete_outline_rounded,
@@ -424,7 +427,7 @@ class _LogSheetState extends State<LogSheet> {
           hint: 'Search exercises',
           autofocus: true,
           plain: true,
-          prefix: const ArcIcon('search', size: 18, color: AppColors.faint),
+          prefix: ArcIcon('search', size: 18, color: AppColors.faint),
           onChanged: (v) => setState(() => _query = v),
         ),
         const SizedBox(height: 14),
@@ -444,7 +447,7 @@ class _LogSheetState extends State<LogSheet> {
                 GroupDot(g),
                 const SizedBox(width: 7),
                 Text(g.toUpperCase(),
-                    style: AppText.sora(
+                    style: AppText.ui(
                         size: 12.5,
                         weight: FontWeight.w700,
                         color: AppColors.muted,
@@ -489,7 +492,7 @@ class _LogSheetState extends State<LogSheet> {
               child: Opacity(
                 opacity: isUsed ? 0.4 : 1,
                 child: Text(ex.name,
-                    style: AppText.sora(size: 15.5, weight: FontWeight.w600)),
+                    style: AppText.ui(size: 15.5, weight: FontWeight.w600)),
               ),
             ),
             Icon(

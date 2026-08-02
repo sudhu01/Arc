@@ -162,13 +162,14 @@ class _LinePainter extends CustomPainter {
       old.data != data || old.strokeW != strokeW;
 }
 
-/// Tiny inline sparkline (no axes), fixed box. Uses [color] for stroke+dot.
+/// Tiny inline sparkline (no axes), fixed box. Uses [color] for stroke+dot,
+/// defaulting to the active theme's accent.
 class Spark extends StatelessWidget {
   final List<num> data;
   final double width;
   final double height;
   final double strokeW;
-  final Color color;
+  final Color? color;
 
   const Spark({
     super.key,
@@ -176,7 +177,7 @@ class Spark extends StatelessWidget {
     this.width = 64,
     this.height = 28,
     this.strokeW = 2,
-    this.color = AppColors.accentStrong,
+    this.color,
   });
 
   @override
@@ -186,7 +187,7 @@ class Spark extends StatelessWidget {
       painter: _SparkPainter(
         data.map((e) => e.toDouble()).toList(),
         strokeW,
-        color,
+        color ?? AppColors.accentStrong,
       ),
     );
   }
@@ -380,7 +381,7 @@ class ProgressChart extends StatelessWidget {
     if (bestDist > 28) return;
     showDialog<void>(
       context: context,
-      barrierColor: const Color(0x6B0A0806),
+      barrierColor: AppColors.scrim,
       builder: (_) => _SessionValueDialog(point: points[bestI], unit: unit),
     );
   }
@@ -400,7 +401,7 @@ class _SessionValueDialog extends StatelessWidget {
     return Dialog(
       backgroundColor: AppColors.surface,
       insetPadding: const EdgeInsets.symmetric(horizontal: 56),
-      shape: const RoundedRectangleBorder(borderRadius: AppRadii.rLg),
+      shape: RoundedRectangleBorder(borderRadius: AppRadii.rLg),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(22, 20, 22, 18),
         child: Column(
@@ -409,7 +410,7 @@ class _SessionValueDialog extends StatelessWidget {
           children: [
             Text(
               ArcData.fmtDate(ArcData.iso(point.date), 'long'),
-              style: AppText.sora(
+              style: AppText.ui(
                   size: 13.5, weight: FontWeight.w600, color: AppColors.muted),
             ),
             const SizedBox(height: 8),
@@ -421,7 +422,7 @@ class _SessionValueDialog extends StatelessWidget {
                     style: AppText.mono(size: 30, weight: FontWeight.w700)),
                 const SizedBox(width: 6),
                 Text(unit,
-                    style: AppText.sora(
+                    style: AppText.ui(
                         size: 14, weight: FontWeight.w600, color: AppColors.muted)),
               ],
             ),
@@ -490,7 +491,7 @@ class _ProgressGeometry {
     final dateTp = TextPainter(
       text: TextSpan(
         text: 'Jun\n1',
-        style: AppText.sora(size: 10.5, weight: FontWeight.w500, color: AppColors.faint),
+        style: AppText.ui(size: 10.5, weight: FontWeight.w500, color: AppColors.faint),
       ),
       textAlign: TextAlign.center,
       textDirection: TextDirection.ltr,
@@ -654,7 +655,7 @@ class _ProgressPainter extends CustomPainter {
       final tp = TextPainter(
         text: TextSpan(
           text: '${_monShort[d.month - 1]}\n${d.day}',
-          style: AppText.sora(
+          style: AppText.ui(
               size: 10.5, weight: FontWeight.w500, color: AppColors.faint),
         ),
         textAlign: TextAlign.center,

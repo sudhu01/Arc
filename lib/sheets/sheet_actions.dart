@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../data/arc_data.dart';
+import '../data/models.dart';
 import '../data/store.dart';
 import '../widgets/sheet.dart';
 import 'pr_detail_sheet.dart';
@@ -20,6 +21,18 @@ class Sheets {
       full: true,
       title: name,
       builder: (_) => PRDetailSheet(exId: exId),
+    );
+  }
+
+  /// Same overlay as [openPR], for a record that isn't in the local store
+  /// (a companion's). Read-only — no logging from here.
+  static Future<void> openCompanionPR(
+      BuildContext context, ExerciseRecord record) {
+    return showArcSheet(
+      context: context,
+      full: true,
+      title: record.ex.name,
+      builder: (_) => PRDetailSheet.forRecord(record: record),
     );
   }
 

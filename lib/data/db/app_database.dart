@@ -21,7 +21,7 @@ class AppDatabase {
   final Database db;
 
   static const _dbName = 'arc.db';
-  static const _version = 2;
+  static const _version = 3;
 
   /// Open the database. [factory] and [path] are injectable so tests can run
   /// against an in-memory sqflite_common_ffi database.
@@ -46,7 +46,20 @@ class AppDatabase {
       await db.execute(
           'ALTER TABLE companions ADD COLUMN incoming INTEGER NOT NULL DEFAULT 0');
     }
+    // v3: local-only key/value settings (theme choice, …).
+    if (oldVersion < 3) {
+      await db.execute(_settingsTable);
+    }
   }
+
+  /// Device-local preferences. Deliberately not synced — a companion's theme
+  /// is their own business.
+  static const _settingsTable = '''
+    CREATE TABLE settings (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  ''';
 
   static Future<void> _onCreate(Database db, int version) async {
     final batch = db.batch();
@@ -140,7 +153,26 @@ class AppDatabase {
       )
     ''');
 
+    // ── Device-local settings ────────────────────────────────────────
+    batch.execute(_settingsTable);
+
     await batch.commit(noResult: true);
+  }
+
+  // ── Settings (device-local key/value) ──────────────────────────────
+  Future<String?> getSetting(String key) async {
+    final rows =
+        await db.query('settings', where: 'key = ?', whereArgs: [key], limit: 1);
+    if (rows.isEmpty) return null;
+    return rows.first['value'] as String;
+  }
+
+  Future<void> setSetting(String key, String value) async {
+    await db.insert(
+      'settings',
+      {'key': key, 'value': value},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   // ── Identity ───────────────────────────────────────────────────────

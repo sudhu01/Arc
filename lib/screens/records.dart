@@ -35,11 +35,11 @@ class _RecordsState extends State<Records> {
       padding: const EdgeInsets.fromLTRB(18, 4, 18, 0),
       children: [
         Text('Records',
-            style: AppText.sora(
+            style: AppText.ui(
                 size: titleStyleSize, weight: FontWeight.w700, letterSpacing: -0.96)),
         const SizedBox(height: 16),
         Segmented.simple(
-          options: const ['All', 'Push', 'Pull', 'Legs'],
+          options: const ['All', ...ArcData.groups],
           value: _filter,
           onChanged: (v) => setState(() => _filter = v),
         ),
@@ -83,7 +83,7 @@ class _RecordRow extends StatelessWidget {
                       child: Text(ex.name,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: AppText.sora(size: 16, weight: FontWeight.w700)),
+                          style: AppText.ui(size: 16, weight: FontWeight.w700)),
                     ),
                     if (isNew) ...[
                       const SizedBox(width: 7),
@@ -94,7 +94,7 @@ class _RecordRow extends StatelessWidget {
                 const SizedBox(height: 3),
                 Text(
                   '${isBw ? '${best.reps} reps' : '${fmtW(best.weight)} kg × ${best.reps}'} · ${ArcData.relDate(best.date)}',
-                  style: AppText.sora(
+                  style: AppText.ui(
                       size: 12.5, weight: FontWeight.w500, color: AppColors.muted),
                 ),
               ],
@@ -120,7 +120,7 @@ class _RecordRow extends StatelessWidget {
                 ),
                 const SizedBox(height: 1),
                 Text(isBw ? 'reps' : 'est. 1RM',
-                    style: AppText.sora(
+                    style: AppText.ui(
                         size: 10.5,
                         weight: FontWeight.w600,
                         color: AppColors.faint)),

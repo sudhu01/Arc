@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../data/arc_data.dart';
 import '../data/models.dart';
 import '../data/store.dart';
 import '../sheets/sheet_actions.dart';
 import '../theme/app_theme.dart';
+import '../theme/theme_controller.dart';
 import '../widgets/arc_icons.dart';
 import '../widgets/charts.dart';
 import '../widgets/ui.dart';
@@ -91,14 +93,14 @@ class _DashboardState extends State<Dashboard> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(greet,
-                      style: AppText.sora(
+                      style: AppText.ui(
                           size: 13.5,
                           weight: FontWeight.w600,
                           color: AppColors.muted)),
                   const SizedBox(height: 2),
                   Text(
                     ArcData.fmtDate(ArcData.iso(ArcData.today), 'long'),
-                    style: AppText.sora(
+                    style: AppText.ui(
                         size: 30,
                         weight: FontWeight.w700,
                         letterSpacing: -0.9,
@@ -108,21 +110,12 @@ class _DashboardState extends State<Dashboard> {
               ),
             ),
             const SizedBox(width: 12),
-            PressScale(
+            const _ThemeToggle(),
+            const SizedBox(width: 8),
+            _HeaderButton(
+              icon: Icons.people_outline_rounded,
+              tooltip: 'Companions',
               onTap: () => Sheets.openCompanions(context),
-              borderRadius: BorderRadius.circular(14),
-              child: Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: AppColors.cardLine),
-                  boxShadow: AppShadows.card,
-                ),
-                child: const Icon(Icons.people_outline_rounded,
-                    size: 22, color: AppColors.ink),
-              ),
             ),
           ],
         ),
@@ -148,16 +141,16 @@ class _DashboardState extends State<Dashboard> {
             padding: const EdgeInsets.fromLTRB(0, 56, 0, 24),
             child: Column(
               children: [
-                const ArcIcon('dumbbell', size: 40, color: AppColors.faint),
+                ArcIcon('dumbbell', size: 40, color: AppColors.faint),
                 const SizedBox(height: 14),
                 Text('No workouts yet',
-                    style: AppText.sora(size: 18, weight: FontWeight.w700)),
+                    style: AppText.ui(size: 18, weight: FontWeight.w700)),
                 const SizedBox(height: 6),
                 Text(
                   'Log your first workout to start tracking progress, '
                   'records, and weekly stats.',
                   textAlign: TextAlign.center,
-                  style: AppText.sora(
+                  style: AppText.ui(
                       size: 13.5, height: 1.4, color: AppColors.muted),
                 ),
                 const SizedBox(height: 18),
@@ -178,10 +171,10 @@ class _DashboardState extends State<Dashboard> {
             children: [
               Row(
                 children: [
-                  const ArcIcon('trend', size: 17, color: AppColors.accentStrong),
+                  ArcIcon('trend', size: 17, color: AppColors.accentStrong),
                   const SizedBox(width: 7),
                   Text('Strength progress',
-                      style: AppText.sora(size: 15, weight: FontWeight.w700)),
+                      style: AppText.ui(size: 15, weight: FontWeight.w700)),
                 ],
               ),
               const SizedBox(height: 12),
@@ -192,7 +185,7 @@ class _DashboardState extends State<Dashboard> {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(2, 20, 2, 6),
                   child: Text('No logged exercise matches that search.',
-                      style: AppText.sora(
+                      style: AppText.ui(
                           size: 13,
                           weight: FontWeight.w500,
                           color: AppColors.muted)),
@@ -204,7 +197,7 @@ class _DashboardState extends State<Dashboard> {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(2, 20, 2, 6),
                   child: Text('Log a weighted set to start tracking your 1RM.',
-                      style: AppText.sora(
+                      style: AppText.ui(
                           size: 13,
                           weight: FontWeight.w500,
                           color: AppColors.muted)),
@@ -271,7 +264,7 @@ class _DashboardState extends State<Dashboard> {
                                     size: 30, weight: FontWeight.w700, height: 1)),
                             const SizedBox(width: 4),
                             Text(isBw ? 'reps' : 'kg',
-                                style: AppText.sora(
+                                style: AppText.ui(
                                     size: 13,
                                     weight: FontWeight.w600,
                                     color: AppColors.muted)),
@@ -283,7 +276,7 @@ class _DashboardState extends State<Dashboard> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style:
-                              AppText.sora(size: 13.5, weight: FontWeight.w600)),
+                              AppText.ui(size: 13.5, weight: FontWeight.w600)),
                       const SizedBox(height: 6),
                       Spark(
                         data: r.history.map((h) => h.score).toList(),
@@ -295,7 +288,7 @@ class _DashboardState extends State<Dashboard> {
                         '${isBw ? '${r.best!.reps} reps' : '${fmtW(r.best!.weight)} × ${r.best!.reps}'} · ${ArcData.relDate(r.best!.date)}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: AppText.sora(
+                        style: AppText.ui(
                             size: 11.5,
                             weight: FontWeight.w500,
                             color: AppColors.faint),
@@ -329,13 +322,13 @@ class _DashboardState extends State<Dashboard> {
     return Container(
       height: 42,
       padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppColors.surface2,
         borderRadius: AppRadii.rMd,
       ),
       child: Row(
         children: [
-          const ArcIcon('search', size: 18, color: AppColors.faint),
+          ArcIcon('search', size: 18, color: AppColors.faint),
           const SizedBox(width: 8),
           Expanded(
             child: TextField(
@@ -343,12 +336,12 @@ class _DashboardState extends State<Dashboard> {
               focusNode: _searchFocus,
               onChanged: (v) => setState(() => _query = v),
               cursorColor: AppColors.accentStrong,
-              style: AppText.sora(size: 14, weight: FontWeight.w500),
+              style: AppText.ui(size: 14, weight: FontWeight.w500),
               decoration: InputDecoration(
                 isCollapsed: true,
                 border: InputBorder.none,
                 hintText: 'Search your exercises',
-                hintStyle: AppText.sora(
+                hintStyle: AppText.ui(
                     size: 14, weight: FontWeight.w500, color: AppColors.faint),
               ),
             ),
@@ -361,7 +354,7 @@ class _DashboardState extends State<Dashboard> {
                 _searchFocus.unfocus();
                 setState(() => _query = '');
               },
-              child: const Padding(
+              child: Padding(
                 padding: EdgeInsets.only(left: 6),
                 child: ArcIcon('x', size: 16, color: AppColors.faint),
               ),
@@ -407,7 +400,7 @@ class _DashboardState extends State<Dashboard> {
               child: Text(ex.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: AppText.sora(size: 14.5, weight: FontWeight.w600)),
+                  style: AppText.ui(size: 14.5, weight: FontWeight.w600)),
             ),
             const SizedBox(width: 8),
             Text(
@@ -442,9 +435,9 @@ class _DashboardState extends State<Dashboard> {
                   child: Text(ex.name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: AppText.sora(size: 15.5, weight: FontWeight.w700)),
+                      style: AppText.ui(size: 15.5, weight: FontWeight.w700)),
                 ),
-                const ArcIcon('chevR', size: 18, color: AppColors.faint),
+                ArcIcon('chevR', size: 18, color: AppColors.faint),
               ],
             ),
             const SizedBox(height: 10),
@@ -466,7 +459,7 @@ class _DashboardState extends State<Dashboard> {
                                 size: 34, weight: FontWeight.w700, height: 1)),
                         const SizedBox(width: 8),
                         Text(selBw ? 'best reps' : 'kg est. 1RM',
-                            style: AppText.sora(
+                            style: AppText.ui(
                                 size: 14,
                                 weight: FontWeight.w600,
                                 color: AppColors.muted)),
@@ -476,10 +469,10 @@ class _DashboardState extends State<Dashboard> {
                 ),
                 if (selDelta > 0) ...[
                   const SizedBox(width: 8),
-                  const ArcIcon('arrowUp', size: 13, color: AppColors.up),
+                  ArcIcon('arrowUp', size: 13, color: AppColors.up),
                   const SizedBox(width: 3),
                   Text('+${ArcData.fmtScore(selDelta)}',
-                      style: AppText.sora(
+                      style: AppText.ui(
                           size: 13, weight: FontWeight.w700, color: AppColors.up)),
                 ],
               ],
@@ -500,6 +493,60 @@ class _DashboardState extends State<Dashboard> {
   }
 }
 
+/// Square icon button in the dashboard header, styled as a small card.
+class _HeaderButton extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  const _HeaderButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: PressScale(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppColors.cardLine),
+            boxShadow: AppShadows.card,
+          ),
+          child: Icon(icon, size: 22, color: AppColors.ink),
+        ),
+      ),
+    );
+  }
+}
+
+/// Flips the app between the Surge (light) and Midnight (dark) palettes.
+class _ThemeToggle extends StatelessWidget {
+  const _ThemeToggle();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.watch<ThemeController>();
+    final dark = theme.isDark;
+    return _HeaderButton(
+      icon: dark ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
+      tooltip: dark ? 'Switch to light theme' : 'Switch to dark theme',
+      onTap: () {
+        HapticFeedback.selectionClick();
+        theme.toggle();
+      },
+    );
+  }
+}
+
 class _RecentRow extends StatelessWidget {
   final dynamic ses;
   const _RecentRow({required this.ses});
@@ -507,11 +554,7 @@ class _RecentRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final store = context.read<ArcStore>();
-    final grp = ses.title.contains('Push')
-        ? 'Push'
-        : ses.title.contains('Pull')
-            ? 'Pull'
-            : 'Legs';
+    final grp = ArcData.groupFromTitle(ses.title);
     final names = ses.entries
         .map((e) => store.exById(e.exerciseId)?.name)
         .where((n) => n != null)
@@ -536,7 +579,7 @@ class _RecentRow extends StatelessWidget {
                     style: AppText.mono(size: 17, weight: FontWeight.w700, height: 1)),
                 const SizedBox(height: 1),
                 Text(ArcData.weekdayShort[ArcData.jsWeekday(d)].toUpperCase(),
-                    style: AppText.sora(
+                    style: AppText.ui(
                         size: 9.5,
                         weight: FontWeight.w700,
                         color: AppColors.muted)),
@@ -553,14 +596,14 @@ class _RecentRow extends StatelessWidget {
                     GroupDot(grp),
                     const SizedBox(width: 7),
                     Text(ses.title,
-                        style: AppText.sora(size: 15.5, weight: FontWeight.w700)),
+                        style: AppText.ui(size: 15.5, weight: FontWeight.w700)),
                   ],
                 ),
                 const SizedBox(height: 2),
                 Text(names,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: AppText.sora(size: 12.5, color: AppColors.muted)),
+                    style: AppText.ui(size: 12.5, color: AppColors.muted)),
               ],
             ),
           ),
@@ -571,7 +614,7 @@ class _RecentRow extends StatelessWidget {
               Text('${(vol / 1000).toStringAsFixed(1)}k',
                   style: AppText.mono(size: 13.5, weight: FontWeight.w600)),
               Text(ArcData.relDate(ses.date),
-                  style: AppText.sora(
+                  style: AppText.ui(
                       size: 10.5, weight: FontWeight.w600, color: AppColors.faint)),
             ],
           ),

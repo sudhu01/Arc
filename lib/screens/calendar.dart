@@ -78,7 +78,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
               width: 36,
               height: 36,
               decoration:
-                  const BoxDecoration(color: AppColors.surface2, shape: BoxShape.circle),
+                  BoxDecoration(color: AppColors.surface2, shape: BoxShape.circle),
               child: Icon(ArcIcons.byName(icon), size: 18, color: AppColors.ink),
             ),
           ),
@@ -88,7 +88,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
       padding: const EdgeInsets.fromLTRB(18, 4, 18, 0),
       children: [
         Text('History',
-            style: AppText.sora(
+            style: AppText.ui(
                 size: titleStyleSize, weight: FontWeight.w700, letterSpacing: -0.96)),
         const SizedBox(height: 16),
         Row(
@@ -114,7 +114,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 children: [
                   navBtn('chevL', prev),
                   Text('${ArcData.monthsLong[_m - 1]} $_y',
-                      style: AppText.sora(size: 16.5, weight: FontWeight.w700)),
+                      style: AppText.ui(size: 16.5, weight: FontWeight.w700)),
                   navBtn('chevR', next, dim: atCurrent),
                 ],
               ),
@@ -125,7 +125,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     Expanded(
                       child: Center(
                         child: Text(d,
-                            style: AppText.sora(
+                            style: AppText.ui(
                                 size: 11,
                                 weight: FontWeight.w700,
                                 color: AppColors.faint)),
@@ -152,13 +152,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
                   final ses = store.sessionForDate(iso);
                   final isToday = iso == ArcData.iso(today);
                   final future = dt.isAfter(today);
-                  final grp = ses == null
-                      ? null
-                      : ses.title.contains('Push')
-                          ? 'Push'
-                          : ses.title.contains('Pull')
-                              ? 'Pull'
-                              : 'Legs';
+                  final grp =
+                      ses == null ? null : ArcData.groupFromTitle(ses.title);
                   return Opacity(
                     opacity: future ? 0.32 : 1,
                     child: GestureDetector(
@@ -214,11 +209,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            for (final g in const ['Push', 'Pull', 'Legs']) ...[
+            for (final g in ArcData.groups) ...[
               GroupDot(g),
               const SizedBox(width: 6),
               Text(g,
-                  style: AppText.sora(
+                  style: AppText.ui(
                       size: 12, weight: FontWeight.w600, color: AppColors.muted)),
               const SizedBox(width: 16),
             ],

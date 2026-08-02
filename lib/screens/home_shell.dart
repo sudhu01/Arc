@@ -61,11 +61,14 @@ class _HomeShellState extends State<HomeShell> {
             height: MediaQuery.of(context).padding.top + 8,
             child: IgnorePointer(
               child: DecoratedBox(
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
-                    colors: [AppColors.bg, Color(0x00F4F5F7)],
+                    colors: [
+                      AppColors.bg,
+                      AppColors.bg.withValues(alpha: 0),
+                    ],
                   ),
                 ),
               ),
@@ -134,7 +137,9 @@ class _FabState extends State<_Fab> {
           decoration: BoxDecoration(
             color: AppColors.accent,
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: AppColors.surface, width: 4),
+            // The design cuts the FAB out of the nav bar itself, so the ring
+            // is nav-bg rather than surface (identical in light, not in dark).
+            border: Border.all(color: AppColors.navBg, width: 4),
             boxShadow: AppShadows.accent,
           ),
           child: Icon(ArcIcons.byName('plus'), size: 26, color: AppColors.accentInk),
@@ -174,9 +179,9 @@ class _BottomNav extends StatelessWidget {
         child: Container(
           height: height,
           padding: EdgeInsets.only(top: 8, bottom: 18 + safeBottom),
-          decoration: const BoxDecoration(
-            color: Color(0xD9FFFFFF), // white @ ~85%
-            border: Border(top: BorderSide(color: AppColors.line)),
+          decoration: BoxDecoration(
+            color: AppColors.navBg,
+            border: Border(top: BorderSide(color: AppColors.navLine)),
           ),
           child: Row(
             children: items.map((it) {
@@ -199,7 +204,7 @@ class _BottomNav extends StatelessWidget {
                       const SizedBox(height: 3),
                       Text(
                         it.label,
-                        style: AppText.sora(
+                        style: AppText.ui(
                           size: 10,
                           height: 1.1,
                           weight: active ? FontWeight.w700 : FontWeight.w600,
@@ -296,7 +301,7 @@ class _ToastPillState extends State<_ToastPill> {
                 const SizedBox(width: 9),
                 Text(
                   t.msg,
-                  style: AppText.sora(
+                  style: AppText.ui(
                       size: 14.5,
                       weight: FontWeight.w600,
                       color: AppColors.toastInk),
