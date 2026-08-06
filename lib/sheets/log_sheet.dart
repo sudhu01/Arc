@@ -38,7 +38,18 @@ class _LogSheetState extends State<LogSheet> {
                 exerciseId: e.exerciseId,
                 sets: e.sets
                     .map((s) => DraftSet(
-                        weight: s.weight, reps: s.reps, id: ArcData.uid('set')))
+                          weight: s.weight,
+                          reps: s.reps,
+                          id: ArcData.uid('set'),
+                          // Carried through, or re-saving an edited workout
+                          // would write the set back without its drops.
+                          drops: s.drops
+                              .map((d) => DraftDrop(
+                                  weight: d.weight,
+                                  reps: d.reps,
+                                  id: ArcData.uid('drp')))
+                              .toList(),
+                        ))
                     .toList(),
               ))
           .toList();
