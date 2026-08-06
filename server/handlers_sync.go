@@ -50,7 +50,10 @@ func (s *Server) handleSyncPush(w http.ResponseWriter, r *http.Request, me strin
 		}
 		payload := "null"
 		if len(c.Payload) > 0 {
-			payload = string(c.Payload)
+			// Older clients embed a precomputed "volume" in the session
+			// payload. Arc no longer tracks that value, so drop it on the way
+			// in rather than relaying it back out to every companion.
+			payload = sanitizeLegacyVolume(string(c.Payload))
 		}
 		in = append(in, ChangeIn{
 			ObjectType: c.ObjectType,

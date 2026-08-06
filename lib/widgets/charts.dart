@@ -133,7 +133,7 @@ class _LinePainter extends CustomPainter {
     canvas.drawPath(
       line,
       Paint()
-        ..color = AppColors.accent
+        ..color = AppColors.accentLine
         ..style = PaintingStyle.stroke
         ..strokeWidth = strokeW
         ..strokeCap = StrokeCap.round
@@ -144,13 +144,13 @@ class _LinePainter extends CustomPainter {
     if (showDots) {
       final last = pts.last;
       canvas.drawCircle(
-          last, 6.5, Paint()..color = AppColors.accent.withValues(alpha: 0.18));
+          last, 6.5, Paint()..color = AppColors.accentLine.withValues(alpha: 0.18));
       canvas.drawCircle(last, 3.6, Paint()..color = AppColors.surface);
       canvas.drawCircle(
         last,
         3.6,
         Paint()
-          ..color = AppColors.accent
+          ..color = AppColors.accentLine
           ..style = PaintingStyle.stroke
           ..strokeWidth = 2.5,
       );
@@ -239,7 +239,7 @@ class _SparkPainter extends CustomPainter {
   bool shouldRepaint(_SparkPainter old) => old.data != data || old.color != color;
 }
 
-/// Vertical bars (e.g. weekly volume); last bar is highlighted in accent.
+/// Vertical bars (e.g. weekly set counts); last bar is highlighted in accent.
 class Bars extends StatelessWidget {
   final List<num> data;
   final double height;
@@ -293,7 +293,7 @@ class _BarsPainter extends CustomPainter {
       );
       canvas.drawRRect(
         rect,
-        Paint()..color = isLast ? AppColors.accent : AppColors.bar,
+        Paint()..color = isLast ? AppColors.accentLine : AppColors.bar,
       );
       if (labels != null && i < labels!.length) {
         final tp = TextPainter(
@@ -625,7 +625,7 @@ class _ProgressPainter extends CustomPainter {
     canvas.drawPath(
       line,
       Paint()
-        ..color = AppColors.accent
+        ..color = AppColors.accentLine
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2.5
         ..strokeCap = StrokeCap.round
@@ -641,7 +641,7 @@ class _ProgressPainter extends CustomPainter {
         pts[i],
         r,
         Paint()
-          ..color = AppColors.accent
+          ..color = AppColors.accentLine
           ..style = PaintingStyle.stroke
           ..strokeWidth = 2,
       );

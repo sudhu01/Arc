@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../data/arc_data.dart';
+import '../data/companion_data.dart';
 import '../data/models.dart';
 import '../data/store.dart';
 import '../widgets/sheet.dart';
+import '../widgets/ui.dart';
+import 'appearance_sheet.dart';
 import 'pr_detail_sheet.dart';
 import 'day_detail_sheet.dart';
 import 'log_sheet.dart';
@@ -40,7 +43,31 @@ class Sheets {
     return showArcSheet(
       context: context,
       title: ArcData.fmtDate(date, 'long'),
+      titleAction: (ctx) {
+        // watched so the button goes away with the workout on a rest day
+        final store = ctx.watch<ArcStore>();
+        final ses = store.sessionForDate(date);
+        if (ses == null) return const SizedBox.shrink();
+        return CopyIconButton(
+          semanticLabel: 'Copy workout',
+          text: () => workoutAsText(ses: ses, exById: store.exById),
+        );
+      },
       builder: (_) => DayDetailSheet(date: date),
+    );
+  }
+
+  /// Same overlay as [openDay], for a companion's workout — read-only.
+  static Future<void> openCompanionDay(
+      BuildContext context, Session session, CompanionData data) {
+    return showArcSheet(
+      context: context,
+      title: ArcData.fmtDate(session.date, 'long'),
+      titleAction: (_) => CopyIconButton(
+        semanticLabel: 'Copy workout',
+        text: () => workoutAsText(ses: session, exById: data.exById),
+      ),
+      builder: (_) => DayDetailSheet.forCompanion(session: session, data: data),
     );
   }
 
@@ -62,6 +89,14 @@ class Sheets {
     return showArcSheet(
       context: context,
       builder: (_) => AddExerciseSheet(initialGroup: group),
+    );
+  }
+
+  static Future<void> openAppearance(BuildContext context) {
+    return showArcSheet(
+      context: context,
+      title: 'Appearance',
+      builder: (_) => const AppearanceSheet(),
     );
   }
 

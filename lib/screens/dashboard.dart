@@ -43,6 +43,8 @@ class _DashboardState extends State<Dashboard> {
     final hour = DateTime.now().hour;
     final greet =
         hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+    final rawName = store.identity.displayName?.trim() ?? '';
+    final name = rawName.isEmpty ? 'there' : rawName;
 
     // Exercises the user has actually logged, ranked so the heaviest 1RM
     // surfaces first; bodyweight lifts (no 1RM) sort to the back.
@@ -82,6 +84,9 @@ class _DashboardState extends State<Dashboard> {
     final recent = sessions.take(4).toList();
 
     return ListView(
+      // The shell is re-keyed (and so recreated) on every theme and accent
+      // change; this restores the scroll offset across that rebuild.
+      key: const PageStorageKey('dashboard'),
       padding: const EdgeInsets.fromLTRB(18, 4, 18, 0),
       children: [
         // greeting + companions entry
@@ -99,7 +104,7 @@ class _DashboardState extends State<Dashboard> {
                           color: AppColors.muted)),
                   const SizedBox(height: 2),
                   Text(
-                    ArcData.fmtDate(ArcData.iso(ArcData.today), 'long'),
+                    name,
                     style: AppText.ui(
                         size: 30,
                         weight: FontWeight.w700,
@@ -110,7 +115,7 @@ class _DashboardState extends State<Dashboard> {
               ),
             ),
             const SizedBox(width: 12),
-            const _ThemeToggle(),
+            const _AppearanceButton(),
             const SizedBox(width: 8),
             _HeaderButton(
               icon: Icons.people_outline_rounded,
@@ -127,11 +132,7 @@ class _DashboardState extends State<Dashboard> {
             StatTile(label: 'This week', value: '${stats.thisWeek}', unit: 'workouts'),
             const SizedBox(width: 10),
             StatTile(
-                label: 'Volume',
-                value: ArcData.fmtVolK(stats.totalVol),
-                unit: 'kg'),
-            const SizedBox(width: 10),
-            StatTile(label: 'Total sets', value: '${stats.totalSets}'),
+                label: 'This week', value: '${stats.setsThisWeek}', unit: 'sets'),
           ],
         ),
         const SizedBox(height: 24),
@@ -498,19 +499,28 @@ class _HeaderButton extends StatelessWidget {
   final IconData icon;
   final String tooltip;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
+  final Color? iconColor;
 
   const _HeaderButton({
     required this.icon,
     required this.tooltip,
     required this.onTap,
+    this.onLongPress,
+    this.iconColor,
   });
 
   @override
   Widget build(BuildContext context) {
     return Tooltip(
       message: tooltip,
+      // A tooltip claims long-press on touch platforms, which would fight a
+      // button that binds its own. Buttons with a long-press keep the tooltip
+      // for its semantics and hover, but not its gesture.
+      triggerMode: onLongPress != null ? TooltipTriggerMode.manual : null,
       child: PressScale(
         onTap: onTap,
+        onLongPress: onLongPress,
         borderRadius: BorderRadius.circular(14),
         child: Container(
           width: 44,
@@ -521,16 +531,25 @@ class _HeaderButton extends StatelessWidget {
             border: Border.all(color: AppColors.cardLine),
             boxShadow: AppShadows.card,
           ),
-          child: Icon(icon, size: 22, color: AppColors.ink),
+          child: Icon(icon, size: 22, color: iconColor ?? AppColors.ink),
         ),
       ),
     );
   }
 }
 
-/// Flips the app between the Surge (light) and Midnight (dark) palettes.
-class _ThemeToggle extends StatelessWidget {
-  const _ThemeToggle();
+/// Opens the Appearance sheet — light/dark plus the accent picker.
+///
+/// The glyph reports the active mode and is drawn in the active accent, so the
+/// control previews the setting it opens. It uses `accentStrong` rather than
+/// `accent`: at 22px the light theme's bright fill sits near 1.35:1 on the
+/// button's white surface and would all but disappear.
+///
+/// Long-press still flips light/dark outright. Moving the toggle into a sheet
+/// costs the old one-tap path, and that path is worth keeping for a user
+/// standing in a gym.
+class _AppearanceButton extends StatelessWidget {
+  const _AppearanceButton();
 
   @override
   Widget build(BuildContext context) {
@@ -538,8 +557,13 @@ class _ThemeToggle extends StatelessWidget {
     final dark = theme.isDark;
     return _HeaderButton(
       icon: dark ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
-      tooltip: dark ? 'Switch to light theme' : 'Switch to dark theme',
+      tooltip: 'Appearance',
+      iconColor: AppColors.accentStrong,
       onTap: () {
+        HapticFeedback.selectionClick();
+        Sheets.openAppearance(context);
+      },
+      onLongPress: () {
         HapticFeedback.selectionClick();
         theme.toggle();
       },
@@ -560,32 +584,13 @@ class _RecentRow extends StatelessWidget {
         .where((n) => n != null)
         .join(' · ');
     final d = ArcData.parseISO(ses.date);
-    final vol = ArcData.sessionVolume(ses);
 
     return ArcCard(
       onTap: () => Sheets.openDay(context, ses.date),
       padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 13),
       child: Row(
         children: [
-          Container(
-            width: 46,
-            height: 46,
-            decoration: BoxDecoration(
-                color: AppColors.surface2, borderRadius: BorderRadius.circular(14)),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text('${d.day}',
-                    style: AppText.mono(size: 17, weight: FontWeight.w700, height: 1)),
-                const SizedBox(height: 1),
-                Text(ArcData.weekdayShort[ArcData.jsWeekday(d)].toUpperCase(),
-                    style: AppText.ui(
-                        size: 9.5,
-                        weight: FontWeight.w700,
-                        color: AppColors.muted)),
-              ],
-            ),
-          ),
+          DateChip(date: d),
           const SizedBox(width: 13),
           Expanded(
             child: Column(
@@ -608,16 +613,9 @@ class _RecentRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text('${(vol / 1000).toStringAsFixed(1)}k',
-                  style: AppText.mono(size: 13.5, weight: FontWeight.w600)),
-              Text(ArcData.relDate(ses.date),
-                  style: AppText.ui(
-                      size: 10.5, weight: FontWeight.w600, color: AppColors.faint)),
-            ],
-          ),
+          Text(ArcData.relDate(ses.date),
+              style: AppText.ui(
+                  size: 10.5, weight: FontWeight.w600, color: AppColors.faint)),
         ],
       ),
     );

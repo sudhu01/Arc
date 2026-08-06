@@ -123,17 +123,28 @@ class ArcTextField extends StatefulWidget {
   final String hint;
   final bool autofocus;
   final ValueChanged<String>? onChanged;
+  final ValueChanged<String>? onSubmitted;
   final Widget? prefix;
+  final Widget? suffix;
   final bool plain;
+  final TextInputType? keyboardType;
+  final bool autocorrect;
+  /// Supply one to control focus from outside; otherwise an internal node is used.
+  final FocusNode? focusNode;
 
   const ArcTextField({
     super.key,
     required this.controller,
     required this.hint,
+    this.focusNode,
     this.autofocus = false,
     this.onChanged,
+    this.onSubmitted,
     this.prefix,
+    this.suffix,
     this.plain = false,
+    this.keyboardType,
+    this.autocorrect = true,
   });
 
   @override
@@ -141,18 +152,23 @@ class ArcTextField extends StatefulWidget {
 }
 
 class _ArcTextFieldState extends State<ArcTextField> {
-  final _focus = FocusNode();
+  late final FocusNode _focus = widget.focusNode ?? FocusNode();
   bool _focused = false;
 
   @override
   void initState() {
     super.initState();
-    _focus.addListener(() => setState(() => _focused = _focus.hasFocus));
+    _focus.addListener(_onFocus);
+  }
+
+  void _onFocus() {
+    if (mounted) setState(() => _focused = _focus.hasFocus);
   }
 
   @override
   void dispose() {
-    _focus.dispose();
+    _focus.removeListener(_onFocus);
+    if (widget.focusNode == null) _focus.dispose(); // only ours to dispose
     super.dispose();
   }
 
@@ -166,7 +182,10 @@ class _ArcTextFieldState extends State<ArcTextField> {
           color: _focused && !widget.plain ? AppColors.accent : AppColors.line,
         ),
       ),
-      padding: EdgeInsets.symmetric(horizontal: widget.prefix != null ? 14 : 16),
+      padding: EdgeInsets.only(
+        left: widget.prefix != null ? 14 : 16,
+        right: widget.suffix != null ? 8 : 16,
+      ),
       child: Row(
         children: [
           if (widget.prefix != null) ...[
@@ -179,6 +198,12 @@ class _ArcTextFieldState extends State<ArcTextField> {
               focusNode: _focus,
               autofocus: widget.autofocus,
               onChanged: widget.onChanged,
+              onSubmitted: widget.onSubmitted,
+              keyboardType: widget.keyboardType,
+              autocorrect: widget.autocorrect,
+              enableSuggestions: widget.autocorrect,
+              textInputAction:
+                  widget.onSubmitted != null ? TextInputAction.done : null,
               cursorColor: AppColors.accentStrong,
               style: AppText.ui(size: 16.5, weight: FontWeight.w500),
               decoration: InputDecoration(
@@ -191,6 +216,7 @@ class _ArcTextFieldState extends State<ArcTextField> {
               ),
             ),
           ),
+          if (widget.suffix != null) widget.suffix!,
         ],
       ),
     );

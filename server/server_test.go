@@ -245,6 +245,160 @@ func TestRestoreKeepsDisplayName(t *testing.T) {
 	}
 }
 
+// ── Adding a companion by link ────────────────────────────────────────
+//
+// The paste-a-link flow sends strict=true and expects to be told exactly why an
+// add failed. The background reconciler re-sends every outstanding request on
+// every sync and needs the same endpoint to stay silently idempotent, so each
+// rejection below is paired with a check that the non-strict call still passes.
+
+// request is a strict (user-initiated) companion add.
+func (c *testClient) request(peerID string, extra map[string]any) (int, map[string]any) {
+	body := map[string]any{"peer_id": peerID, "strict": true}
+	for k, v := range extra {
+		body[k] = v
+	}
+	return c.do("POST", "/v1/companions/request", body)
+}
+
+// unregisteredID returns a well-formed public_id with no account behind it.
+func unregisteredID(t *testing.T) string {
+	t.Helper()
+	pub, _, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return derivePublicID(pub)
+}
+
+func TestCompanionRequestRejectsSelf(t *testing.T) {
+	base := newTestBase(t)
+	alice := newClient(t, base, "Alice")
+
+	code, body := alice.request(alice.id, nil)
+	if code != http.StatusBadRequest {
+		t.Fatalf("expected 400 adding yourself, got %d %v", code, body)
+	}
+	// Non-strict too: a self-edge is never legitimate.
+	if code, _ := alice.do("POST", "/v1/companions/request", map[string]any{"peer_id": alice.id}); code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for non-strict self-add, got %d", code)
+	}
+}
+
+func TestCompanionRequestRejectsMalformedID(t *testing.T) {
+	base := newTestBase(t)
+	alice := newClient(t, base, "Alice")
+
+	for _, id := range []string{"", "not-base64url!!", "c2hvcnQ"} { // empty, undecodable, wrong length
+		if code, body := alice.request(id, nil); code != http.StatusBadRequest {
+			t.Fatalf("expected 400 for peer_id %q, got %d %v", id, code, body)
+		}
+	}
+}
+
+func TestCompanionRequestRejectsKeyIDMismatch(t *testing.T) {
+	base := newTestBase(t)
+	alice := newClient(t, base, "Alice")
+	bob := newClient(t, base, "Bob")
+	mallory := newClient(t, base, "Mallory")
+
+	// Bob's id carried alongside Mallory's key — a tampered link.
+	code, body := alice.request(bob.id, map[string]any{"peer_key": b64uEncode(mallory.pub)})
+	if code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for key/id mismatch, got %d %v", code, body)
+	}
+	// The matching key is accepted.
+	if code, _ := alice.request(bob.id, map[string]any{"peer_key": b64uEncode(bob.pub)}); code != http.StatusOK {
+		t.Fatalf("expected 200 for a well-formed link, got %d", code)
+	}
+}
+
+func TestCompanionRequestUnknownPeer(t *testing.T) {
+	base := newTestBase(t)
+	alice := newClient(t, base, "Alice")
+	ghost := unregisteredID(t)
+
+	if code, body := alice.request(ghost, nil); code != http.StatusNotFound {
+		t.Fatalf("expected 404 for an unregistered link, got %d %v", code, body)
+	}
+	// The reconciler's non-strict re-send must still be a quiet success — a peer
+	// who hasn't registered yet is exactly the case it exists to heal.
+	if code, _ := alice.do("POST", "/v1/companions/request", map[string]any{"peer_id": ghost}); code != http.StatusOK {
+		t.Fatalf("expected 200 for non-strict unknown peer, got %d", code)
+	}
+}
+
+func TestCompanionRequestRejectsDuplicates(t *testing.T) {
+	base := newTestBase(t)
+	alice := newClient(t, base, "Alice")
+	bob := newClient(t, base, "Bob")
+
+	code, body := alice.request(bob.id, nil)
+	if code != http.StatusOK || body["result"] != "pending" {
+		t.Fatalf("first request: got %d %v", code, body)
+	}
+	if code, body := alice.request(bob.id, nil); code != http.StatusConflict {
+		t.Fatalf("expected 409 re-adding a pending peer, got %d %v", code, body)
+	}
+	if code, _ := alice.do("POST", "/v1/companions/request", map[string]any{"peer_id": bob.id}); code != http.StatusOK {
+		t.Fatalf("non-strict re-send of a pending request must stay 200, got %d", code)
+	}
+
+	// Once accepted, a strict re-add is still a conflict; non-strict is not.
+	if code, _ := bob.do("POST", "/v1/companions/accept", map[string]any{"peer_id": alice.id}); code != http.StatusOK {
+		t.Fatalf("accept: got %d", code)
+	}
+	if code, body := alice.request(bob.id, nil); code != http.StatusConflict {
+		t.Fatalf("expected 409 re-adding an accepted companion, got %d %v", code, body)
+	}
+	if code, body := alice.do("POST", "/v1/companions/request", map[string]any{"peer_id": bob.id}); code != http.StatusOK || body["result"] != "accepted" {
+		t.Fatalf("non-strict re-send after accept: got %d %v", code, body)
+	}
+}
+
+func TestCompanionRequestReciprocates(t *testing.T) {
+	base := newTestBase(t)
+	alice := newClient(t, base, "Alice")
+	bob := newClient(t, base, "Bob")
+
+	// Bob pastes Alice's link first; Alice pasting his back completes the pair
+	// without either of them touching the accept button.
+	if code, _ := bob.request(alice.id, nil); code != http.StatusOK {
+		t.Fatalf("bob request: got %d", code)
+	}
+	code, body := alice.request(bob.id, nil)
+	if code != http.StatusOK || body["result"] != "accepted" {
+		t.Fatalf("expected 200 result=accepted, got %d %v", code, body)
+	}
+	_, list := alice.do("GET", "/v1/companions", nil)
+	edges := list["companions"].([]any)
+	if len(edges) != 1 || edges[0].(map[string]any)["status"] != "accepted" {
+		t.Fatalf("expected one accepted edge, got %v", edges)
+	}
+}
+
+func TestCompanionRequestRejectsBlocked(t *testing.T) {
+	base := newTestBase(t)
+	alice := newClient(t, base, "Alice")
+	bob := newClient(t, base, "Bob")
+
+	if code, _ := alice.do("POST", "/v1/companions/block", map[string]any{"peer_id": bob.id}); code != http.StatusOK {
+		t.Fatalf("block: got %d", code)
+	}
+	if code, body := alice.request(bob.id, nil); code != http.StatusConflict {
+		t.Fatalf("expected 409 adding a blocked peer, got %d %v", code, body)
+	}
+	// A block is never silently overridden, strict or not.
+	if code, _ := alice.do("POST", "/v1/companions/request", map[string]any{"peer_id": bob.id}); code != http.StatusOK {
+		t.Fatalf("non-strict request on a blocked edge should no-op with 200, got %d", code)
+	}
+	_, list := alice.do("GET", "/v1/companions", nil)
+	edges := list["companions"].([]any)
+	if len(edges) != 1 || edges[0].(map[string]any)["status"] != "blocked" {
+		t.Fatalf("edge should still be blocked, got %v", edges)
+	}
+}
+
 func itoa(n int64) string {
 	if n == 0 {
 		return "0"

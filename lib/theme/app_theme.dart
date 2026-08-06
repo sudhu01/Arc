@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'accent.dart';
+
 /// A complete set of design tokens for one Arc theme.
 ///
 /// The two instances below are ports of the design canvas's themes:
@@ -27,6 +29,7 @@ class ArcPalette {
     required this.accentInk,
     required this.accentStrong,
     required this.accentSoft,
+    required this.accentLine,
     required this.accentGlowOpacity,
     required this.accentGlowBlur,
     required this.up,
@@ -65,6 +68,14 @@ class ArcPalette {
   final Color accentStrong;
   final Color accentSoft;
 
+  /// Accent for chart geometry — plot lines, dots, the highlighted bar. Kept
+  /// separate from [accent] because a 2.5px stroke has none of a filled
+  /// button's mass: Surge's volt lime sits at ~1.35:1 against the white card
+  /// and all but vanishes as a line. This is the accent pitched dark enough to
+  /// hold an edge (it matches [accentStrong], which the chart cards already use
+  /// for their header icons); Midnight's teal reads fine as-is.
+  final Color accentLine;
+
   /// The `--accent-shadow` glow: alpha + blur of the accent-colored drop.
   final double accentGlowOpacity;
   final double accentGlowBlur;
@@ -100,6 +111,51 @@ class ArcPalette {
   /// which needs scanner-grade contrast against its fixed white card).
   static const qrInk = Color(0xFF0E1217);
 
+  /// This palette with its accent family re-derived from [hue].
+  ///
+  /// Returns `this` untouched at the theme's default hue. The constants below
+  /// are hand-tuned and the derivation lands a hair off them (`#A4E238` vs
+  /// `#A8E92F`) — imperceptible, but not identical, and the shipped look is the
+  /// one that was designed. Every other hue is computed; see [AccentRamp].
+  ArcPalette withAccentHue(int hue) {
+    if (hue % 360 == AccentRamp.defaultHue(dark: isDark)) return this;
+    final a = AccentRamp.derive(hue, dark: isDark);
+    return ArcPalette(
+      brightness: brightness,
+      bg: bg,
+      surface: surface,
+      surface2: surface2,
+      ink: ink,
+      muted: muted,
+      faint: faint,
+      line: line,
+      cardLine: cardLine,
+      accent: a.accent,
+      accentInk: a.accentInk,
+      accentStrong: a.accentStrong,
+      accentSoft: a.accentSoft,
+      accentLine: a.accentLine,
+      accentGlowOpacity: accentGlowOpacity,
+      accentGlowBlur: accentGlowBlur,
+      up: up,
+      danger: danger,
+      dangerSoft: dangerSoft,
+      bar: bar,
+      toastBg: toastBg,
+      toastInk: toastInk,
+      navBg: navBg,
+      navLine: navLine,
+      navMuted: navMuted,
+      radiusSm: radiusSm,
+      radiusMd: radiusMd,
+      radiusLg: radiusLg,
+      cardShadow: cardShadow,
+      smallShadow: smallShadow,
+      fontFamily: fontFamily,
+      monoFamily: monoFamily,
+    );
+  }
+
   /// `B · Surge` — bold athletic · volt.
   static const surge = ArcPalette(
     brightness: Brightness.light,
@@ -115,6 +171,7 @@ class ArcPalette {
     accentInk: Color(0xFF092104),
     accentStrong: Color(0xFF357426),
     accentSoft: Color(0xFFDCF6BD),
+    accentLine: Color(0xFF357426),
     accentGlowOpacity: 0.5,
     accentGlowBlur: 20,
     up: Color(0xFF267D30),
@@ -156,6 +213,7 @@ class ArcPalette {
     accentInk: Color(0xFF001B1D),
     accentStrong: Color(0xFF34EEC2),
     accentSoft: Color(0xFF003B3B),
+    accentLine: Color(0xFF34EEC2),
     // The design calls for `0 6px 22px accent/.4`, but that teal at 40% over a
     // near-black background halos hard around every CTA. Softened to a hint of
     // lift instead.
@@ -199,8 +257,19 @@ class ArcTheme {
   static ArcPalette get palette => _palette;
   static bool get isDark => _palette.isDark;
 
-  static void apply({required bool dark}) {
-    _palette = dark ? ArcPalette.midnight : ArcPalette.surge;
+  /// Each theme keeps its own accent hue, so editing in dark never disturbs
+  /// light. Held here rather than passed on every call because [apply] runs
+  /// from the mode toggle too, which knows nothing about accents.
+  static int _lightHue = AccentRamp.defaultLightHue;
+  static int _darkHue = AccentRamp.defaultDarkHue;
+
+  static int hueFor({required bool dark}) => dark ? _darkHue : _lightHue;
+
+  static void apply({required bool dark, int? lightHue, int? darkHue}) {
+    if (lightHue != null) _lightHue = lightHue % 360;
+    if (darkHue != null) _darkHue = darkHue % 360;
+    final base = dark ? ArcPalette.midnight : ArcPalette.surge;
+    _palette = base.withAccentHue(dark ? _darkHue : _lightHue);
   }
 
   /// Status-bar icon treatment for the active palette. Dark surfaces need
@@ -237,6 +306,7 @@ class AppColors {
   static Color get accentInk => _p.accentInk;
   static Color get accentStrong => _p.accentStrong;
   static Color get accentSoft => _p.accentSoft;
+  static Color get accentLine => _p.accentLine;
 
   static Color get up => _p.up;
   static Color get danger => _p.danger;

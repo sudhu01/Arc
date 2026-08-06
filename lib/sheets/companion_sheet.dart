@@ -16,6 +16,7 @@ import '../theme/app_theme.dart';
 import '../widgets/arc_icons.dart';
 import '../widgets/sheet.dart';
 import '../widgets/ui.dart';
+import 'add_exercise_sheet.dart' show ArcTextField;
 import 'companion_progress_sheet.dart';
 
 /// Companions hub: my shareable QR/link, a scanner to add others, the
@@ -108,6 +109,11 @@ class CompanionSheet extends StatelessWidget {
             ),
           ],
         ),
+        const SizedBox(height: 10),
+
+        // ── Add by link ────────────────────────────────────────────────
+        // The other half of "Copy link": paste what a friend sent you.
+        _AddByLinkRow(store: store),
         const SizedBox(height: 16),
 
         // ── Sync ───────────────────────────────────────────────────────
@@ -318,7 +324,7 @@ class CompanionSheet extends StatelessWidget {
       MaterialPageRoute(builder: (_) => const ScannerPage(), fullscreenDialog: true),
     );
     if (raw == null) return;
-    await store.addCompanionFromScan(raw);
+    await store.addCompanionFromLink(raw);
   }
 
   Future<void> _editName(
@@ -446,6 +452,123 @@ class _CopyLinkButtonState extends State<_CopyLinkButton> {
       icon: _copied ? 'check' : 'copy',
       variant: BtnVariant.soft,
       onTap: _copy,
+    );
+  }
+}
+
+/// Paste a companion's copied link to add them — the counterpart to
+/// [_CopyLinkButton], for pairing when you can't scan a screen in person.
+class _AddByLinkRow extends StatefulWidget {
+  final ArcStore store;
+  const _AddByLinkRow({required this.store});
+
+  @override
+  State<_AddByLinkRow> createState() => _AddByLinkRowState();
+}
+
+class _AddByLinkRowState extends State<_AddByLinkRow> {
+  final _controller = TextEditingController();
+  final _focus = FocusNode();
+  bool _busy = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focus.dispose();
+    super.dispose();
+  }
+
+  void _toast(String msg) => widget.store.toast.value =
+      ArcToast(msg, 'trash', DateTime.now().millisecondsSinceEpoch);
+
+  Future<void> _pasteFromClipboard() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = data?.text?.trim() ?? '';
+    if (text.isEmpty) {
+      _toast('Clipboard is empty');
+      return;
+    }
+    _controller.text = text;
+    _controller.selection =
+        TextSelection.collapsed(offset: _controller.text.length);
+    setState(() {}); // enables the Add button
+  }
+
+  Future<void> _submit() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final added = await widget.store.addCompanionFromLink(_controller.text);
+    if (!mounted) return;
+    if (added) {
+      _controller.clear();
+      _focus.unfocus();
+    }
+    setState(() => _busy = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final empty = _controller.text.trim().isEmpty;
+    return Row(
+      children: [
+        Expanded(
+          child: ArcTextField(
+            controller: _controller,
+            focusNode: _focus,
+            hint: 'Paste companion link',
+            keyboardType: TextInputType.url,
+            autocorrect: false,
+            onChanged: (_) => setState(() {}),
+            onSubmitted: (_) => _submit(),
+            suffix: _IconTapTarget(
+              icon: 'paste',
+              tooltip: 'Paste from clipboard',
+              onTap: _pasteFromClipboard,
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        // Pinned to the wider "Adding…" state so the field beside it doesn't
+        // resize mid-request; the label ellipsizes at large text scales.
+        SizedBox(
+          width: 124,
+          child: ArcButton(
+            label: _busy ? 'Adding…' : 'Add',
+            icon: 'link',
+            variant: BtnVariant.soft,
+            full: true,
+            disabled: _busy || empty,
+            onTap: _submit,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Small square tap target for an icon sitting inside a text field.
+class _IconTapTarget extends StatelessWidget {
+  final String icon;
+  final String tooltip;
+  final VoidCallback onTap;
+  const _IconTapTarget({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: ArcIcon(icon, size: 18, color: AppColors.muted),
+        ),
+      ),
     );
   }
 }

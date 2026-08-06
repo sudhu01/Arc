@@ -71,25 +71,6 @@ class ArcData {
   static double setScore(Exercise ex, WorkoutSet s) =>
       ex.unit == 'bw' ? s.reps.toDouble() : e1rm(s.weight, s.reps);
 
-  static int sessionVolume(Session session) {
-    var v = 0.0;
-    for (final e in session.entries) {
-      for (final s in e.sets) {
-        v += s.weight * s.reps;
-      }
-    }
-    return v.round();
-  }
-
-  /// Compact volume label in thousands of kg: 0 → "0k", 400 → "0.4k",
-  /// 12340 → "12k". Sub-1k volumes keep one decimal so they don't read "0k".
-  static String fmtVolK(int kg) {
-    if (kg == 0) return '0k';
-    final k = kg / 1000;
-    if (kg < 1000) return '${k.toStringAsFixed(1)}k';
-    return '${k.round()}k';
-  }
-
   /// Formats a 1RM/score to one decimal place, dropping a trailing `.0`
   /// (187.5 → "187.5", 190.0 → "190").
   static String fmtScore(num v) {
@@ -163,6 +144,7 @@ class ArcData {
   static const _wd = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
   static List<String> get monthsLong => _monthsLong;
+  static List<String> get monthsShort => _months;
   static List<String> get weekdayShort => _wd;
 
   /// `long` → "Fri, May 29"; otherwise "May 29".
@@ -188,19 +170,23 @@ class ArcData {
   }
 
   static WorkoutStats workoutStats(List<Session> sessions) {
-    final total = sessions.length;
-    final totalVol =
-        sessions.fold<int>(0, (a, s) => a + sessionVolume(s));
-    final totalSets = sessions.fold<int>(
-        0, (a, s) => a + s.entries.fold<int>(0, (x, e) => x + e.sets.length));
-    final thisWeek = sessions
-        .where((s) => daysAgo(s.date) <= 6 && daysAgo(s.date) >= 0)
-        .length;
+    var totalSets = 0;
+    var thisWeek = 0;
+    var setsThisWeek = 0;
+    for (final s in sessions) {
+      final sets = s.entries.fold<int>(0, (x, e) => x + e.sets.length);
+      totalSets += sets;
+      final ago = daysAgo(s.date);
+      if (ago >= 0 && ago <= 6) {
+        thisWeek++;
+        setsThisWeek += sets;
+      }
+    }
     return WorkoutStats(
-      total: total,
-      totalVol: totalVol,
+      total: sessions.length,
       totalSets: totalSets,
       thisWeek: thisWeek,
+      setsThisWeek: setsThisWeek,
     );
   }
 

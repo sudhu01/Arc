@@ -1,20 +1,78 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../data/arc_data.dart';
+import '../data/companion_data.dart';
+import '../data/models.dart';
 import '../data/store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/arc_icons.dart';
 import '../widgets/ui.dart';
 import 'sheet_actions.dart';
 
+/// The workout as plain text for the clipboard: same exercises, sets and
+/// numbers the sheet shows, in the same order, readable wherever it's pasted.
+/// One set per line; a drop chain stays on its parent's line, since it was one
+/// set.
+String workoutAsText({
+  required Session ses,
+  required Exercise? Function(String) exById,
+}) {
+  String fmtW(double w) => w % 1 == 0 ? w.toInt().toString() : w.toString();
+
+  final body = <String>[];
+
+  for (final e in ses.entries) {
+    final ex = exById(e.exerciseId);
+    if (ex == null) continue;
+
+    String seg(double w, int reps) =>
+        ex.isBodyweight ? '$reps reps' : '${fmtW(w)} × $reps';
+
+    body..add('')..add(ex.name);
+    for (final s in e.sets) {
+      body.add('  ${[
+        seg(s.weight, s.reps),
+        for (final d in s.drops) seg(d.weight, d.reps),
+      ].join(' → ')}');
+    }
+  }
+
+  final year = ArcData.parseISO(ses.date).year;
+  return [
+    '${ArcData.fmtDate(ses.date, 'long')} $year',
+    ...body,
+  ].join('\n');
+}
+
 class DayDetailSheet extends StatelessWidget {
-  final String date;
-  const DayDetailSheet({super.key, required this.date});
+  /// Day to look up in the user's own store. Null when [session] is given.
+  final String? date;
+
+  /// A session handed in directly — a companion's, which lives outside the
+  /// store. Read-only: no edit or delete.
+  final Session? session;
+
+  /// Companion the [session] belongs to, used to resolve its exercise names
+  /// from that companion's own library.
+  final CompanionData? data;
+
+  const DayDetailSheet({super.key, required String this.date})
+      : session = null,
+        data = null;
+
+  /// Read-only view of a companion's workout.
+  const DayDetailSheet.forCompanion({
+    super.key,
+    required Session this.session,
+    required CompanionData this.data,
+  }) : date = null;
 
   @override
   Widget build(BuildContext context) {
-    final store = context.watch<ArcStore>();
-    final ses = store.sessionForDate(date);
+    final store = session == null ? context.watch<ArcStore>() : null;
+    final ses = session ?? store!.sessionForDate(date!);
+    Exercise? exById(String id) =>
+        data != null ? data!.exById(id) : store!.exById(id);
 
     String fmtW(double w) => w % 1 == 0 ? w.toInt().toString() : w.toString();
 
@@ -48,7 +106,6 @@ class DayDetailSheet extends StatelessWidget {
 
     final totalSets =
         ses.entries.fold<int>(0, (a, e) => a + e.sets.length);
-    final vol = ArcData.sessionVolume(ses);
 
     Future<void> delete() async {
       final ok = await showArcConfirm(
@@ -60,7 +117,7 @@ class DayDetailSheet extends StatelessWidget {
         confirmLabel: 'Delete',
       );
       if (!ok || !context.mounted) return;
-      await context.read<ArcStore>().deleteSession(date);
+      await context.read<ArcStore>().deleteSession(date!);
       if (context.mounted) Navigator.of(context).maybePop();
     }
 
@@ -74,7 +131,7 @@ class DayDetailSheet extends StatelessWidget {
             const SizedBox(width: 10),
             Flexible(
               child: Text(
-                '$totalSets sets · ${vol.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+$)'), (m) => '${m[1]},')} kg volume',
+                '$totalSets sets',
                 style: AppText.ui(
                     size: 13, weight: FontWeight.w500, color: AppColors.muted),
               ),
@@ -83,28 +140,29 @@ class DayDetailSheet extends StatelessWidget {
         ),
         const SizedBox(height: 14),
         for (final e in ses.entries)
-          if (store.exById(e.exerciseId) case final ex?) ...[
+          if (exById(e.exerciseId) case final ex?) ...[
             _EntryCard(exercise: ex, sets: e.sets, fmtW: fmtW),
             const SizedBox(height: 14),
           ],
-        Row(
-          children: [
-            Expanded(
-              child: ArcButton(
-                  label: 'Edit workout',
-                  icon: 'pencil',
-                  variant: BtnVariant.ghost,
-                  full: true,
-                  onTap: edit),
-            ),
-            const SizedBox(width: 10),
-            ArcButton(
-                label: 'Delete',
-                icon: 'trash',
-                variant: BtnVariant.danger,
-                onTap: delete),
-          ],
-        ),
+        if (session == null)
+          Row(
+            children: [
+              Expanded(
+                child: ArcButton(
+                    label: 'Edit workout',
+                    icon: 'pencil',
+                    variant: BtnVariant.ghost,
+                    full: true,
+                    onTap: edit),
+              ),
+              const SizedBox(width: 10),
+              ArcButton(
+                  label: 'Delete',
+                  icon: 'trash',
+                  variant: BtnVariant.danger,
+                  onTap: delete),
+            ],
+          ),
       ],
     );
   }
@@ -142,24 +200,57 @@ class _EntryCard extends StatelessWidget {
           Wrap(
             spacing: 7,
             runSpacing: 7,
-            children: [
-              for (final s in sets)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: AppColors.surface2,
-                    borderRadius: AppRadii.rSm,
-                  ),
-                  child: Text(
-                    isBw
-                        ? '${s.reps} reps'
-                        : '${fmtW(s.weight as double)} × ${s.reps}',
-                    style: AppText.mono(size: 13.5, weight: FontWeight.w600),
-                  ),
-                ),
-            ],
+            children: [for (final s in sets) _setChip(s, isBw)],
           ),
         ],
+      ),
+    );
+  }
+
+  /// One set, drops included. A drop chain is one chip because it was one set:
+  /// chip count always equals set count. The parent stays in `ink` since it's
+  /// the segment that scores; the tiers read back in `muted`.
+  Widget _setChip(dynamic s, bool isBw) {
+    String seg(double weight, int reps) =>
+        isBw ? '$reps reps' : '${fmtW(weight)} × $reps';
+
+    final drops = (s.drops as List?) ?? const [];
+    final main = seg(s.weight as double, s.reps as int);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.surface2,
+        borderRadius: AppRadii.rSm,
+      ),
+      child: Semantics(
+        label: drops.isEmpty
+            ? main
+            : '$main, then ${drops.map((d) => seg(d.weight as double, d.reps as int)).join(', ')}',
+        excludeSemantics: true,
+        // Wraps internally rather than overflowing, so a long chain at large
+        // text scale breaks onto a second line inside its own chip.
+        child: Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 5,
+          runSpacing: 2,
+          children: [
+            Text(main, style: AppText.mono(size: 13.5, weight: FontWeight.w600)),
+            for (final d in drops)
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(ArcIcons.byName('chevR'), size: 12, color: AppColors.faint),
+                  const SizedBox(width: 3),
+                  Text(seg(d.weight as double, d.reps as int),
+                      style: AppText.mono(
+                          size: 13.5,
+                          weight: FontWeight.w600,
+                          color: AppColors.muted)),
+                ],
+              ),
+          ],
+        ),
       ),
     );
   }

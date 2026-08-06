@@ -146,9 +146,16 @@ class SyncService {
     });
   }
 
-  Future<void> requestCompanion(String peerId) async {
+  /// Send a pairing request; returns `pending` or `accepted`. See
+  /// [SyncApi.requestCompanion] for what [peerKey] and [strict] buy you.
+  Future<String> requestCompanion(
+    String peerId, {
+    String? peerKey,
+    bool strict = false,
+  }) async {
     final api = await _resolveApi();
-    await _authed(api, (t) => api.requestCompanion(t, peerId));
+    return _authed(
+        api, (t) => api.requestCompanion(t, peerId, peerKey: peerKey, strict: strict));
   }
 
   Future<void> acceptCompanion(String peerId) async {
@@ -239,10 +246,24 @@ class SyncService {
         final entries = <Map<String, dynamic>>[];
         for (final e in await _db.getEntryRows(sid)) {
           final eid = e['id'] as String;
-          final sets = [
-            for (final set in await _db.getSetRows(eid))
-              {'id': set['id'], 'weight': set['weight'], 'reps': set['reps']}
-          ];
+          final sets = <Map<String, dynamic>>[];
+          for (final set in await _db.getSetRows(eid)) {
+            final payloadSet = <String, dynamic>{
+              'id': set['id'],
+              'weight': set['weight'],
+              'reps': set['reps'],
+            };
+            // Only carried when the set actually has drops, so a plain set's
+            // payload stays byte-identical to what earlier versions pushed.
+            final drops = await _db.getDropRows(set['id'] as String);
+            if (drops.isNotEmpty) {
+              payloadSet['drops'] = [
+                for (final d in drops)
+                  {'id': d['id'], 'weight': d['weight'], 'reps': d['reps']}
+              ];
+            }
+            sets.add(payloadSet);
+          }
           entries.add({'id': eid, 'exercise_id': e['exercise_id'], 'sets': sets});
         }
         payload['entries'] = entries;

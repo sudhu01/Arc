@@ -46,8 +46,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
       final dt = ArcData.parseISO(s.date);
       return dt.year == _y && dt.month == _m;
     }).toList();
-    final monthVol =
-        monthSessions.fold<int>(0, (a, s) => a + ArcData.sessionVolume(s));
+    final monthSets = monthSessions.fold<int>(
+        0, (a, s) => a + s.entries.fold<int>(0, (x, e) => x + e.sets.length));
 
     final atCurrent = _y == today.year && _m == today.month;
 
@@ -99,9 +99,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 sub: 'this month'),
             const SizedBox(width: 10),
             StatTile(
-                label: 'Volume',
-                value: '${(monthVol / 1000).toStringAsFixed(1)}k',
-                sub: 'kg lifted'),
+                label: 'Total sets', value: '$monthSets', sub: 'this month'),
           ],
         ),
         const SizedBox(height: 18),

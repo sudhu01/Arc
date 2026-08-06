@@ -7,6 +7,7 @@ Future<T?> showArcSheet<T>({
   required BuildContext context,
   required WidgetBuilder builder,
   String? title,
+  WidgetBuilder? titleAction,
   bool full = false,
   bool scrollable = true,
 }) {
@@ -18,6 +19,7 @@ Future<T?> showArcSheet<T>({
     barrierColor: AppColors.scrim,
     builder: (ctx) => ArcSheetScaffold(
       title: title,
+      titleAction: titleAction,
       full: full,
       scrollable: scrollable,
       child: Builder(builder: builder),
@@ -27,6 +29,11 @@ Future<T?> showArcSheet<T>({
 
 class ArcSheetScaffold extends StatelessWidget {
   final String? title;
+
+  /// Optional control seated just left of the close button, on the title row.
+  /// A builder so it can read inherited state from inside the sheet's tree.
+  final WidgetBuilder? titleAction;
+
   final bool full;
   final bool scrollable;
   final Widget child;
@@ -35,6 +42,7 @@ class ArcSheetScaffold extends StatelessWidget {
     super.key,
     required this.child,
     this.title,
+    this.titleAction,
     this.full = false,
     this.scrollable = true,
   });
@@ -88,6 +96,10 @@ class ArcSheetScaffold extends StatelessWidget {
                               letterSpacing: -0.21),
                         ),
                       ),
+                      if (titleAction != null) ...[
+                        Builder(builder: titleAction!),
+                        const SizedBox(width: 8),
+                      ],
                       GestureDetector(
                         onTap: () => Navigator.of(context).maybePop(),
                         child: Container(

@@ -64,8 +64,27 @@ class SyncApi {
   }
 
   // ── Companions ────────────────────────────────────────────────────
-  Future<void> requestCompanion(String token, String peerId) =>
-      _post('/v1/companions/request', {'peer_id': peerId}, token: token);
+  /// Ask to pair with [peerId]; returns the resulting edge state, `pending` or
+  /// `accepted` (the latter when they had already requested me).
+  ///
+  /// [peerKey] is the public key carried by the pairing link — sending it lets
+  /// the server confirm the link actually belongs to that account. [strict]
+  /// marks a user-initiated add, which asks the server to report duplicates,
+  /// blocks and unknown accounts as errors instead of quietly succeeding; the
+  /// background re-send in [SyncService] leaves it off so it stays idempotent.
+  Future<String> requestCompanion(
+    String token,
+    String peerId, {
+    String? peerKey,
+    bool strict = false,
+  }) async {
+    final body = <String, dynamic>{'peer_id': peerId};
+    if (peerKey != null) body['peer_key'] = peerKey;
+    if (strict) body['strict'] = true;
+    final resp =
+        await _post('/v1/companions/request', body, token: token);
+    return (resp['result'] as String?) ?? 'pending';
+  }
 
   Future<List<dynamic>> listCompanions(String token) async {
     final body = await _get('/v1/companions', token: token);

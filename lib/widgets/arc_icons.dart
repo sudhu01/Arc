@@ -63,6 +63,10 @@ class ArcIcons {
         return Icons.ios_share_rounded;
       case 'copy':
         return Icons.content_copy_rounded;
+      case 'paste':
+        return Icons.content_paste_rounded;
+      case 'link':
+        return Icons.link_rounded;
       case 'key':
         return Icons.vpn_key_outlined;
       case 'restore':

@@ -87,17 +87,18 @@ class _CompanionProgressSheetState extends State<CompanionProgressSheet> {
         if (sessions.isEmpty)
           _emptyState(d.companion.displayName)
         else ...[
-          // ── all-time stats ──────────────────────────────────────────
+          // ── this-week stats ─────────────────────────────────────────
           Row(
             children: [
-              StatTile(label: 'Workouts', value: '${stats.total}'),
+              StatTile(
+                  label: 'This week',
+                  value: '${stats.thisWeek}',
+                  unit: 'workouts'),
               const SizedBox(width: 10),
               StatTile(
-                  label: 'Volume',
-                  value: ArcData.fmtVolK(stats.totalVol),
-                  sub: 'kg all-time'),
-              const SizedBox(width: 10),
-              StatTile(label: 'Total sets', value: '${stats.totalSets}'),
+                  label: 'This week',
+                  value: '${stats.setsThisWeek}',
+                  unit: 'sets'),
             ],
           ),
           const SizedBox(height: 22),
@@ -529,33 +530,13 @@ class _RecentRow extends StatelessWidget {
         .where((n) => n != null)
         .join(' · ');
     final dt = ArcData.parseISO(session.date);
-    final vol = ArcData.sessionVolume(session);
 
     return ArcCard(
+      onTap: () => Sheets.openCompanionDay(context, session, data),
       padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 13),
       child: Row(
         children: [
-          Container(
-            width: 46,
-            height: 46,
-            decoration: BoxDecoration(
-                color: AppColors.surface2,
-                borderRadius: BorderRadius.circular(14)),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text('${dt.day}',
-                    style:
-                        AppText.mono(size: 17, weight: FontWeight.w700, height: 1)),
-                const SizedBox(height: 1),
-                Text(ArcData.weekdayShort[ArcData.jsWeekday(dt)].toUpperCase(),
-                    style: AppText.ui(
-                        size: 9.5,
-                        weight: FontWeight.w700,
-                        color: AppColors.muted)),
-              ],
-            ),
-          ),
+          DateChip(date: dt),
           const SizedBox(width: 13),
           Expanded(
             child: Column(
@@ -578,16 +559,9 @@ class _RecentRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text('${(vol / 1000).toStringAsFixed(1)}k',
-                  style: AppText.mono(size: 13.5, weight: FontWeight.w600)),
-              Text(ArcData.relDate(session.date),
-                  style: AppText.ui(
-                      size: 10.5, weight: FontWeight.w600, color: AppColors.faint)),
-            ],
-          ),
+          Text(ArcData.relDate(session.date),
+              style: AppText.ui(
+                  size: 10.5, weight: FontWeight.w600, color: AppColors.faint)),
         ],
       ),
     );

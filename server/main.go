@@ -25,6 +25,14 @@ func main() {
 	}
 	defer store.Close()
 
+	// One-shot: purge the retired "total volume lifted" value from every
+	// user's stored payloads. No-ops on an already-purged database.
+	if n, err := store.PurgeLegacyVolume(context.Background()); err != nil {
+		log.Printf("purge legacy volume: %v", err)
+	} else if n > 0 {
+		log.Printf("purged legacy volume from %d change rows", n)
+	}
+
 	srv := &Server{store: store}
 	httpServer := &http.Server{
 		Addr:              addr,

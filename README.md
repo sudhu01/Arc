@@ -8,13 +8,13 @@ typeface, and a signature volt (lime) accent.
 
 ## Features
 
-- **Dashboard** — greeting + date, week stats (workouts / volume / total sets),
+- **Dashboard** — greeting + date, week stats (workouts / total sets),
   an interactive **strength-progress** chart (Bench / Back / Deadlift), a
   horizontally-scrolling **Personal Records** rail, and recent workouts.
 - **Records** — all lifts ranked by estimated 1RM, filterable by muscle group,
   each with a sparkline and a tap-through detail sheet.
 - **History** — a month calendar with workout days dotted by muscle group
-  (Push / Pull / Legs), today ringed in volt, and monthly volume stats.
+  (Push / Pull / Legs), today ringed in volt, and monthly workout/set stats.
 - **Exercises** — the exercise library with per-exercise training counts and
   bests; add your own.
 - **Log workout** — a full sheet with a date picker, per-set weight/rep steppers,
@@ -23,7 +23,7 @@ typeface, and a signature volt (lime) accent.
 - **PR detail** — hero 1RM, trend chart, top weight / sessions / total reps, and
   a full progression log.
 
-All metrics (estimated 1RM, session volume, records, streak/week stats) and the
+All metrics (estimated 1RM, records, streak/week stats) and the
 6-week / 18-session seed history are ported from the original design's data
 model. The "today" date is pinned to **Fri, May 29 2026** to match the seed.
 

@@ -15,8 +15,12 @@ import (
 var schemaSQL string
 
 var (
-	ErrNotFound          = errors.New("not found")
-	ErrNoPendingRequest  = errors.New("no pending request to accept")
+	ErrNotFound         = errors.New("not found")
+	ErrNoPendingRequest = errors.New("no pending request to accept")
+	// Raised only for strict (user-initiated) companion requests.
+	ErrCompanionExists  = errors.New("already companions")
+	ErrCompanionPending = errors.New("request already sent")
+	ErrCompanionBlocked = errors.New("companion is blocked")
 )
 
 type Store struct{ db *sql.DB }
@@ -41,6 +45,8 @@ func OpenStore(path string) (*Store, error) {
 }
 
 func (s *Store) Close() error { return s.db.Close() }
+
+func isNoRows(err error) bool { return errors.Is(err, sql.ErrNoRows) }
 
 func nowMs() int64 { return time.Now().UnixMilli() }
 
@@ -155,35 +161,71 @@ type CompanionView struct {
 	Incoming    bool   `json:"incoming"` // peer initiated → I can accept
 }
 
-// RequestCompanion records me → peer. If peer already requested me, this
-// reciprocates and the edge becomes accepted (natural mutual pairing).
-func (s *Store) RequestCompanion(ctx context.Context, me, peer string) error {
+// RequestCompanion records me → peer and reports the resulting edge state,
+// "pending" or "accepted". If peer already requested me, this reciprocates and
+// the edge becomes accepted (natural mutual pairing).
+//
+// strict turns the no-op cases into errors, for a user who just pasted a link
+// and deserves to be told the edge already exists. Non-strict behaviour is
+// unchanged and stays idempotent for the sync reconciler, which re-sends
+// outstanding requests on every sync.
+func (s *Store) RequestCompanion(ctx context.Context, me, peer string, strict bool) (string, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer tx.Rollback()
 
-	// Reciprocal pending request from peer → me? Accept it.
-	res, err := tx.ExecContext(ctx, `
-		UPDATE companions SET status = 'accepted'
-		WHERE requester_id = ? AND peer_id = ? AND status = 'pending'`, peer, me)
-	if err != nil {
-		return err
-	}
-	if n, _ := res.RowsAffected(); n > 0 {
-		return tx.Commit()
+	// Inspect any existing edge in either direction first, so the decision and
+	// the write share one transaction (no check-then-insert race).
+	var requester, status string
+	err = tx.QueryRowContext(ctx, `
+		SELECT requester_id, status FROM companions
+		WHERE (requester_id = ? AND peer_id = ?) OR (requester_id = ? AND peer_id = ?)
+		ORDER BY CASE status WHEN 'blocked' THEN 0 WHEN 'accepted' THEN 1 ELSE 2 END
+		LIMIT 1`,
+		me, peer, peer, me).Scan(&requester, &status)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", err
 	}
 
-	// Otherwise create (or keep) my outbound request. Won't override a block.
-	_, err = tx.ExecContext(ctx, `
+	if !errors.Is(err, sql.ErrNoRows) {
+		switch {
+		case status == "blocked":
+			if strict {
+				return "", ErrCompanionBlocked
+			}
+			return "pending", tx.Commit() // a block is never overridden
+
+		case status == "accepted":
+			if strict {
+				return "", ErrCompanionExists
+			}
+			return "accepted", tx.Commit()
+
+		case requester == peer: // they asked me → reciprocate
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE companions SET status = 'accepted'
+				WHERE requester_id = ? AND peer_id = ?`, peer, me); err != nil {
+				return "", err
+			}
+			return "accepted", tx.Commit()
+
+		default: // my own request, still awaiting their acceptance
+			if strict {
+				return "", ErrCompanionPending
+			}
+			return "pending", tx.Commit()
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO companions (requester_id, peer_id, status, created_at)
 		VALUES (?, ?, 'pending', ?)
-		ON CONFLICT(requester_id, peer_id) DO NOTHING`, me, peer, nowMs())
-	if err != nil {
-		return err
+		ON CONFLICT(requester_id, peer_id) DO NOTHING`, me, peer, nowMs()); err != nil {
+		return "", err
 	}
-	return tx.Commit()
+	return "pending", tx.Commit()
 }
 
 // AcceptCompanion accepts a pending request that peer sent to me.

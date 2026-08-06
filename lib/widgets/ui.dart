@@ -1,12 +1,130 @@
+import 'dart:async';
+import 'dart:math' show pi, sin;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../data/arc_data.dart';
 import '../theme/app_theme.dart';
 import 'arc_icons.dart';
+
+/// Round icon button that copies text and morphs its glyph into a tick to
+/// confirm it landed — sized to sit beside the sheet's close button.
+class CopyIconButton extends StatefulWidget {
+  /// Resolved on tap, so what's copied reflects the state at that moment.
+  final String Function() text;
+  final double size;
+  final String semanticLabel;
+
+  const CopyIconButton({
+    super.key,
+    required this.text,
+    this.size = 34,
+    this.semanticLabel = 'Copy',
+  });
+
+  @override
+  State<CopyIconButton> createState() => _CopyIconButtonState();
+}
+
+class _CopyIconButtonState extends State<CopyIconButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 420),
+    reverseDuration: const Duration(milliseconds: 260),
+  );
+  Timer? _revert;
+
+  @override
+  void dispose() {
+    _revert?.cancel();
+    _c.dispose();
+    super.dispose();
+  }
+
+  Future<void> _copy() async {
+    await Clipboard.setData(ClipboardData(text: widget.text()));
+    if (!mounted) return;
+    HapticFeedback.selectionClick();
+    _c.forward(from: 0);
+    _revert?.cancel();
+    _revert = Timer(const Duration(milliseconds: 1700), () {
+      if (mounted) _c.reverse();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final glyph = widget.size * 0.53;
+    return Semantics(
+      button: true,
+      label: widget.semanticLabel,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _copy,
+        child: AnimatedBuilder(
+          animation: _c,
+          builder: (context, _) {
+            final t = _c.value;
+            // the clipboard glyph clears out before the tick draws in, so the
+            // two never read as one muddled shape mid-swap
+            final out = Curves.easeIn.transform((t / 0.4).clamp(0.0, 1.0));
+            final tick = Curves.easeOutBack
+                .transform(((t - 0.28) / 0.72).clamp(0.0, 1.0));
+            // one soft pop of the whole button as the glyphs trade places
+            final pop = 1 + 0.12 * sin(pi * Curves.easeOut.transform(t));
+
+            return Transform.scale(
+              scale: pop,
+              child: Container(
+                width: widget.size,
+                height: widget.size,
+                decoration: BoxDecoration(
+                  color: Color.lerp(AppColors.surface2, AppColors.accentSoft, t),
+                  shape: BoxShape.circle,
+                ),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Opacity(
+                      opacity: 1 - out,
+                      child: Transform.scale(
+                        scale: 1 - 0.35 * out,
+                        child: ArcIcon('copy',
+                            size: glyph, color: AppColors.muted),
+                      ),
+                    ),
+                    Opacity(
+                      // easeOutBack overshoots past 1; opacity can't
+                      opacity: tick.clamp(0.0, 1.0),
+                      child: Transform.scale(
+                        scale: tick,
+                        child: Transform.rotate(
+                          angle: -0.5 * (1 - tick),
+                          child: ArcIcon('check',
+                              size: glyph + 2, color: AppColors.accentStrong),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
 
 /// Wraps a child with a tactile press-to-scale animation (Surge feel).
 class PressScale extends StatefulWidget {
   final Widget child;
   final VoidCallback? onTap;
+
+  /// Optional shortcut gesture. Never the only route to an action — the
+  /// long-press on the Appearance button duplicates the toggle inside it.
+  final VoidCallback? onLongPress;
   final double scale;
   final BorderRadius? borderRadius;
 
@@ -14,6 +132,7 @@ class PressScale extends StatefulWidget {
     super.key,
     required this.child,
     this.onTap,
+    this.onLongPress,
     this.scale = 0.97,
     this.borderRadius,
   });
@@ -27,11 +146,18 @@ class _PressScaleState extends State<PressScale> {
 
   @override
   Widget build(BuildContext context) {
+    final pressable = widget.onTap != null || widget.onLongPress != null;
     return GestureDetector(
       onTap: widget.onTap,
-      onTapDown: widget.onTap == null ? null : (_) => setState(() => _down = true),
-      onTapUp: widget.onTap == null ? null : (_) => setState(() => _down = false),
-      onTapCancel: widget.onTap == null ? null : () => setState(() => _down = false),
+      onLongPress: widget.onLongPress == null
+          ? null
+          : () {
+              setState(() => _down = false);
+              widget.onLongPress!();
+            },
+      onTapDown: !pressable ? null : (_) => setState(() => _down = true),
+      onTapUp: !pressable ? null : (_) => setState(() => _down = false),
+      onTapCancel: !pressable ? null : () => setState(() => _down = false),
       behavior: HitTestBehavior.opaque,
       child: AnimatedScale(
         scale: _down ? widget.scale : 1,
@@ -152,13 +278,19 @@ class ArcButton extends StatelessWidget {
             ArcIcon(icon!, size: size == BtnSize.lg ? 20 : 18, color: fg),
             const SizedBox(width: 8),
           ],
-          Text(
-            label,
-            style: AppText.ui(
-              size: fs,
-              weight: FontWeight.w600,
-              color: fg,
-              letterSpacing: -0.1,
+          // Flexible so a long label (or a large system text scale) ellipsizes
+          // instead of overflowing the button.
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppText.ui(
+                size: fs,
+                weight: FontWeight.w600,
+                color: fg,
+                letterSpacing: -0.1,
+              ),
             ),
           ),
         ],
@@ -494,6 +626,41 @@ class GroupDot extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.group(group),
         shape: BoxShape.circle,
+      ),
+    );
+  }
+}
+
+/// Calendar-style date chip for workout rows: month, day, weekday stacked
+/// (e.g. AUG / 5 / TUE).
+class DateChip extends StatelessWidget {
+  final DateTime date;
+  const DateChip({super.key, required this.date});
+
+  @override
+  Widget build(BuildContext context) {
+    final label = AppText.ui(
+        size: 8.5,
+        weight: FontWeight.w700,
+        height: 1.1,
+        letterSpacing: 0.4);
+    return Container(
+      width: 50,
+      height: 52,
+      decoration: BoxDecoration(
+          color: AppColors.surface2, borderRadius: BorderRadius.circular(14)),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(ArcData.monthsShort[date.month - 1].toUpperCase(),
+              style: label.copyWith(color: AppColors.faint)),
+          const SizedBox(height: 2),
+          Text('${date.day}',
+              style: AppText.mono(size: 16.5, weight: FontWeight.w700, height: 1)),
+          const SizedBox(height: 2),
+          Text(ArcData.weekdayShort[ArcData.jsWeekday(date)].toUpperCase(),
+              style: label.copyWith(color: AppColors.muted)),
+        ],
       ),
     );
   }

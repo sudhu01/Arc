@@ -16,15 +16,44 @@ class Exercise {
   bool get isBodyweight => unit == 'bw';
 }
 
+/// One tier of a drop set: the lighter weight/reps pair run straight off the
+/// back of a working set, with no rest in between.
+///
+/// A drop never carries drops of its own — a chain is flat, so `100×8 → 80×6 →
+/// 60×5` is one [WorkoutSet] holding two [SetDrop]s.
+class SetDrop {
+  final String id;
+  final double weight;
+  final int reps;
+
+  const SetDrop({required this.id, required this.weight, required this.reps});
+}
+
 class WorkoutSet {
   final String id;
   final double weight;
   final int reps;
 
-  const WorkoutSet({required this.id, required this.weight, required this.reps});
+  /// Drop tiers run off the back of this set, in the order they were performed
+  /// (heaviest first). A set and its drops are *one* set everywhere Arc counts
+  /// them, and only the parent's weight/reps feed est. 1RM and PR detection —
+  /// drops are fatigue work, not a strength test.
+  final List<SetDrop> drops;
 
-  WorkoutSet copyWith({double? weight, int? reps}) =>
-      WorkoutSet(id: id, weight: weight ?? this.weight, reps: reps ?? this.reps);
+  const WorkoutSet({
+    required this.id,
+    required this.weight,
+    required this.reps,
+    this.drops = const [],
+  });
+
+  WorkoutSet copyWith({double? weight, int? reps, List<SetDrop>? drops}) =>
+      WorkoutSet(
+        id: id,
+        weight: weight ?? this.weight,
+        reps: reps ?? this.reps,
+        drops: drops ?? this.drops,
+      );
 }
 
 class Entry {
@@ -81,15 +110,15 @@ class ExerciseRecord {
 
 class WorkoutStats {
   final int total;
-  final int totalVol;
   final int totalSets;
   final int thisWeek;
+  final int setsThisWeek;
 
   const WorkoutStats({
     required this.total,
-    required this.totalVol,
     required this.totalSets,
     required this.thisWeek,
+    required this.setsThisWeek,
   });
 }
 

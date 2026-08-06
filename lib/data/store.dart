@@ -8,6 +8,7 @@ import 'db/app_database.dart';
 import 'identity/identity_service.dart';
 import 'identity/pairing.dart';
 import 'models.dart';
+import 'sync/sync_api.dart' show SyncException;
 import 'sync/sync_service.dart';
 
 /// A transient toast request (saved workout / new PR / removed).
@@ -18,12 +19,30 @@ class ArcToast {
   const ArcToast(this.msg, this.icon, this.seq);
 }
 
+/// Mutable counterpart of [SetDrop] while editing in the log sheet.
+class DraftDrop {
+  double weight;
+  int reps;
+  final String id;
+  DraftDrop({required this.weight, required this.reps, required this.id});
+}
+
 /// Draft set used while editing in the log sheet.
 class DraftSet {
   double weight;
   int reps;
   final String id;
-  DraftSet({required this.weight, required this.reps, required this.id});
+
+  /// Drop tiers hanging off this set. Grown and pruned in place by the log
+  /// sheet, so it's a mutable list rather than a replaced one.
+  final List<DraftDrop> drops;
+
+  DraftSet({
+    required this.weight,
+    required this.reps,
+    required this.id,
+    List<DraftDrop>? drops,
+  }) : drops = drops ?? [];
 }
 
 class DraftEntry {
@@ -187,7 +206,16 @@ class ArcStore extends ChangeNotifier {
                   exerciseId: e.exerciseId,
                   sets: e.sets
                       .map((s) => WorkoutSet(
-                          id: ArcData.uid('set'), weight: s.weight, reps: s.reps))
+                            id: ArcData.uid('set'),
+                            weight: s.weight,
+                            reps: s.reps,
+                            drops: s.drops
+                                .map((d) => SetDrop(
+                                    id: ArcData.uid('drp'),
+                                    weight: d.weight,
+                                    reps: d.reps))
+                                .toList(),
+                          ))
                       .toList(),
                 ))
             .toList(),
@@ -263,37 +291,93 @@ class ArcStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Add a companion from a scanned QR payload. Returns false if it's me or a
-  /// malformed/duplicate scan (already a companion just refreshes their info).
-  /// Stores the contact locally, then sends a pairing request to the server
-  /// (best-effort — if offline, the next sync re-sends it).
-  Future<bool> addCompanionFromScan(String raw) async {
-    final payload = PairingPayload.tryParse(raw);
-    if (payload == null) return false;
-    if (payload.publicId == _me) {
-      _fire("That's your own code", 'trash');
+  /// Add a companion from a pairing link — scanned from their QR or pasted
+  /// from "Copy link". Returns false if nothing was added, always after
+  /// toasting why.
+  ///
+  /// The link is validated locally first (shape, key length, and that the id
+  /// really is the hash of the key), then against what we already know about
+  /// this person, then by the server. The server call goes *before* the local
+  /// write so a rejected add never leaves an orphan row behind — except when
+  /// the server can't be reached or doesn't know them yet, where we keep the
+  /// contact as pending and let the reconciler in [SyncService] re-send on the
+  /// next sync.
+  Future<bool> addCompanionFromLink(String raw) async {
+    final parsed = PairingPayload.parse(raw);
+    if (parsed.payload == null) {
+      _fire(parsed.issue!.message, 'trash');
       return false;
     }
+    final payload = parsed.payload!;
+    if (payload.publicId == _me) {
+      _fire("That's your own link", 'trash');
+      return false;
+    }
+
     final existing =
         _companions.where((c) => c.publicId == payload.publicId).firstOrNull;
+    final who = existing?.displayName.isNotEmpty == true
+        ? existing!.displayName
+        : payload.displayName;
+    switch (existing?.status) {
+      case CompanionStatus.accepted:
+        _fire("You're already companions with $who", 'trash');
+        return false;
+      case CompanionStatus.blocked:
+        _fire('$who is blocked — remove them first', 'trash');
+        return false;
+      case CompanionStatus.pending when !existing!.incoming:
+        _fire('Request already sent to $who', 'trash');
+        return false;
+      // A pending *incoming* request falls through: re-adding them is how you
+      // accept it, and the server reciprocates the edge.
+      default:
+        break;
+    }
+
+    var result = 'pending';
+    var reachedServer = true;
+    try {
+      result = await _sync.requestCompanion(
+        payload.publicId,
+        peerKey: payload.publicKey,
+        strict: true,
+      );
+    } on SyncException catch (e) {
+      // Only the server's verdicts on the link itself are fatal. A 404 (they
+      // haven't set up sync yet) or any 5xx/auth hiccup keeps the contact and
+      // lets the next sync re-send.
+      if (e.statusCode == 400 || e.statusCode == 409) {
+        _fire(e.message, 'trash');
+        return false;
+      }
+      reachedServer = false;
+    } catch (_) {
+      reachedServer = false; // offline / server down
+    }
+
+    final accepted = result == 'accepted';
     await _db.upsertCompanion(Companion(
       publicId: payload.publicId,
       publicKey: payload.publicKey,
       displayName: payload.displayName,
-      // Scanning is the request; the peer must accept before data flows.
-      status: existing?.status ?? CompanionStatus.pending,
-      incoming: existing?.incoming ?? false,
+      status: accepted ? CompanionStatus.accepted : CompanionStatus.pending,
+      // If we couldn't reciprocate their incoming request (offline), keep it
+      // flagged incoming so it stays acceptable from the Requests list.
+      incoming: accepted ? false : (existing?.incoming ?? false),
       addedAt: existing?.addedAt ?? DateTime.now().millisecondsSinceEpoch,
       lastSyncedAt: existing?.lastSyncedAt,
     ));
     _companions = await _db.getCompanions();
     notifyListeners();
-    _fire('Added ${payload.displayName}', 'check');
 
-    try {
-      await _sync.requestCompanion(payload.publicId);
-    } catch (_) {
-      // Offline / server down — the pending row stays; resend on next sync.
+    if (!reachedServer) {
+      _fire('Saved — ${payload.displayName} will get your request on next sync',
+          'check');
+    } else if (accepted) {
+      _fire('Now companions with ${payload.displayName}', 'check');
+    } else {
+      _fire('Request sent to ${payload.displayName}', 'check');
     }
     return true;
   }

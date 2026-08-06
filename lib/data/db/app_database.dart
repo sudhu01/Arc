@@ -21,7 +21,7 @@ class AppDatabase {
   final Database db;
 
   static const _dbName = 'arc.db';
-  static const _version = 3;
+  static const _version = 4;
 
   /// Open the database. [factory] and [path] are injectable so tests can run
   /// against an in-memory sqflite_common_ffi database.
@@ -50,7 +50,28 @@ class AppDatabase {
     if (oldVersion < 3) {
       await db.execute(_settingsTable);
     }
+    // v4: drop-set tiers hanging off a set. Existing sets simply have none.
+    if (oldVersion < 4) {
+      await db.execute(_dropsTable);
+      await db.execute(_dropsIndex);
+    }
   }
+
+  /// Drop-set tiers. A child of `sets` rather than a flag on it, so a set is
+  /// always exactly one row in `sets` — every "how many sets" count in the app
+  /// depends on that, and a `parent_set_id` column would break them silently
+  /// anywhere a query forgot the filter.
+  static const _dropsTable = '''
+    CREATE TABLE drops (
+      id       TEXT PRIMARY KEY,
+      set_id   TEXT NOT NULL REFERENCES sets(id) ON DELETE CASCADE,
+      weight   REAL NOT NULL,
+      reps     INTEGER NOT NULL,
+      position INTEGER NOT NULL,
+      owner_id TEXT NOT NULL
+    )
+  ''';
+  static const _dropsIndex = 'CREATE INDEX idx_drops_set ON drops(set_id)';
 
   /// Device-local preferences. Deliberately not synced — a companion's theme
   /// is their own business.
@@ -141,6 +162,9 @@ class AppDatabase {
       )
     ''');
     batch.execute('CREATE INDEX idx_sets_entry ON sets(entry_id)');
+
+    batch.execute(_dropsTable);
+    batch.execute(_dropsIndex);
 
     // ── Per-companion sync cursors + server config (used by the relay) ─
     batch.execute('''
@@ -346,13 +370,30 @@ class AppDatabase {
       whereArgs: [ownerId],
       orderBy: 'position ASC',
     );
+    final dropRows = await db.query(
+      'drops',
+      where: 'owner_id = ?',
+      whereArgs: [ownerId],
+      orderBy: 'position ASC',
+    );
+
+    final dropsBySet = <String, List<SetDrop>>{};
+    for (final d in dropRows) {
+      (dropsBySet[d['set_id'] as String] ??= []).add(SetDrop(
+        id: d['id'] as String,
+        weight: (d['weight'] as num).toDouble(),
+        reps: d['reps'] as int,
+      ));
+    }
 
     final setsByEntry = <String, List<WorkoutSet>>{};
     for (final s in setRows) {
+      final id = s['id'] as String;
       (setsByEntry[s['entry_id'] as String] ??= []).add(WorkoutSet(
-        id: s['id'] as String,
+        id: id,
         weight: (s['weight'] as num).toDouble(),
         reps: s['reps'] as int,
+        drops: dropsBySet[id] ?? const [],
       ));
     }
 
@@ -414,6 +455,17 @@ class AppDatabase {
             'position': si,
             'owner_id': ownerId,
           });
+          for (var di = 0; di < set.drops.length; di++) {
+            final drop = set.drops[di];
+            await txn.insert('drops', {
+              'id': drop.id,
+              'set_id': set.id,
+              'weight': drop.weight,
+              'reps': drop.reps,
+              'position': di,
+              'owner_id': ownerId,
+            });
+          }
         }
       }
     });
@@ -459,6 +511,9 @@ class AppDatabase {
 
   Future<List<Map<String, Object?>>> getSetRows(String entryId) => db.query('sets',
       where: 'entry_id = ?', whereArgs: [entryId], orderBy: 'position ASC');
+
+  Future<List<Map<String, Object?>>> getDropRows(String setId) => db.query('drops',
+      where: 'set_id = ?', whereArgs: [setId], orderBy: 'position ASC');
 
   Future<void> clearDirty(String table, List<String> ids) async {
     if (ids.isEmpty) return;
@@ -530,14 +585,29 @@ class AppDatabase {
         final sets = (e['sets'] as List?) ?? const [];
         for (var si = 0; si < sets.length; si++) {
           final s = sets[si] as Map<String, dynamic>;
+          final sid = s['id'];
           await txn.insert('sets', {
-            'id': s['id'],
+            'id': sid,
             'entry_id': eid,
             'weight': (s['weight'] as num).toDouble(),
             'reps': s['reps'],
             'position': si,
             'owner_id': ownerId,
           });
+          // Absent on payloads from an app version that predates drop sets;
+          // those sets simply arrive as plain sets.
+          final drops = (s['drops'] as List?) ?? const [];
+          for (var di = 0; di < drops.length; di++) {
+            final d = drops[di] as Map<String, dynamic>;
+            await txn.insert('drops', {
+              'id': d['id'],
+              'set_id': sid,
+              'weight': (d['weight'] as num).toDouble(),
+              'reps': d['reps'],
+              'position': di,
+              'owner_id': ownerId,
+            });
+          }
         }
       }
     });

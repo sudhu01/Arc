@@ -5,6 +5,12 @@
 -- artifacts, the companion graph, and an opaque per-user change feed it fans
 -- out to accepted companions.
 
+-- Bookkeeping for one-shot data migrations (see legacy_volume.go).
+CREATE TABLE IF NOT EXISTS meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
 -- Public-key registry. public_id == base64url(SHA-256(public_key)).
 CREATE TABLE IF NOT EXISTS users (
   public_id    TEXT PRIMARY KEY,

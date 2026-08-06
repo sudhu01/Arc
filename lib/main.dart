@@ -61,7 +61,14 @@ class ArcAppRoot extends StatelessWidget {
             // widgets that would otherwise short-circuit the rebuild. Keying
             // on the palette forces the whole shell to be rebuilt with the
             // new tokens.
-            home: HomeShell(key: ValueKey(theme.isDark)),
+            //
+            // The accent hue joins the key so dragging the picker repaints the
+            // live app behind the sheet. That means a full shell rebuild per
+            // drag frame: the hue is quantized to whole degrees to bound it at
+            // 360, and the dashboard's list carries a `PageStorageKey` so the
+            // recreated tree restores its scroll offset instead of jumping to
+            // the top under the user.
+            home: HomeShell(key: ValueKey('${theme.isDark}:${theme.accentHue}')),
           );
         },
       ),
