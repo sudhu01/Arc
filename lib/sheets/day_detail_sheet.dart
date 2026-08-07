@@ -39,6 +39,9 @@ String workoutAsText({
 
   final year = ArcData.parseISO(ses.date).year;
   return [
+    // The name leads when there is one — it's what the person pasting this
+    // called the session, and the date alone doesn't say it.
+    if (ses.name != null) ses.name!,
     '${ArcData.fmtDate(ses.date, 'long')} $year',
     ...body,
   ].join('\n');
@@ -76,6 +79,19 @@ class DayDetailSheet extends StatelessWidget {
 
     String fmtW(double w) => w % 1 == 0 ? w.toInt().toString() : w.toString();
 
+    // Tapping a logged exercise opens the same est. 1RM + history overlay the
+    // Records screen uses — the companion's own records when this is their
+    // workout. Null (so the card stays inert) when the exercise has no scored
+    // set behind it, since that overlay would come up blank.
+    final records = data != null ? data!.records : store!.records;
+    VoidCallback? openRecord(String exerciseId) {
+      final rec = records[exerciseId];
+      if (rec == null || rec.best == null) return null;
+      return () => data != null
+          ? Sheets.openCompanionPR(context, rec)
+          : Sheets.openPR(context, exerciseId);
+    }
+
     void edit() {
       Navigator.of(context).maybePop();
       Future.delayed(const Duration(milliseconds: 180), () {
@@ -112,8 +128,8 @@ class DayDetailSheet extends StatelessWidget {
         context: context,
         title: 'Delete workout?',
         message:
-            "This removes ${ses.title} and all its sets from your history. "
-            "This can't be undone.",
+            "This removes ${ses.displayTitle} and all its sets from your "
+            "history. This can't be undone.",
         confirmLabel: 'Delete',
       );
       if (!ok || !context.mounted) return;
@@ -121,27 +137,63 @@ class DayDetailSheet extends StatelessWidget {
       if (context.mounted) Navigator.of(context).maybePop();
     }
 
+    final group = ArcData.sessionGroup(ses, exById);
+    // The group is spelled out only when the title stops carrying it — a
+    // workout called "Chest & Arms" would otherwise state its group in the dot
+    // alone, which is exactly what red/green vision can't read.
+    final meta = [
+      if (ses.name != null) group,
+      '$totalSets ${totalSets == 1 ? 'set' : 'sets'}',
+    ].join(' · ');
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
         Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Tag(ses.title),
-            const SizedBox(width: 10),
-            Flexible(
-              child: Text(
-                '$totalSets sets',
-                style: AppText.ui(
-                    size: 13, weight: FontWeight.w500, color: AppColors.muted),
+            Padding(
+              padding: const EdgeInsets.only(top: 7),
+              child: GroupDot(group),
+            ),
+            const SizedBox(width: 9),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    ses.displayTitle,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.ui(
+                        size: 17.5,
+                        weight: FontWeight.w700,
+                        height: 1.25,
+                        letterSpacing: -0.25),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    meta,
+                    style: AppText.ui(
+                        size: 13,
+                        weight: FontWeight.w500,
+                        color: AppColors.muted),
+                  ),
+                ],
               ),
             ),
           ],
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 16),
         for (final e in ses.entries)
           if (exById(e.exerciseId) case final ex?) ...[
-            _EntryCard(exercise: ex, sets: e.sets, fmtW: fmtW),
+            _EntryCard(
+              exercise: ex,
+              sets: e.sets,
+              fmtW: fmtW,
+              onTap: openRecord(e.exerciseId),
+            ),
             const SizedBox(height: 14),
           ],
         if (session == null)
@@ -172,13 +224,22 @@ class _EntryCard extends StatelessWidget {
   final dynamic exercise;
   final List sets;
   final String Function(double) fmtW;
-  const _EntryCard(
-      {required this.exercise, required this.sets, required this.fmtW});
+
+  /// Opens this exercise's est. 1RM + history. Null leaves the card inert —
+  /// and drops the chevron, so the card never advertises a tap it won't take.
+  final VoidCallback? onTap;
+
+  const _EntryCard({
+    required this.exercise,
+    required this.sets,
+    required this.fmtW,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     final isBw = exercise.unit == 'bw';
-    return Container(
+    final card = Container(
       padding: const EdgeInsets.fromLTRB(15, 13, 15, 13),
       decoration: BoxDecoration(
         color: AppColors.surface,
@@ -192,8 +253,14 @@ class _EntryCard extends StatelessWidget {
             children: [
               GroupDot(exercise.group),
               const SizedBox(width: 8),
-              Text(exercise.name,
-                  style: AppText.ui(size: 16, weight: FontWeight.w600)),
+              Expanded(
+                child: Text(exercise.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.ui(size: 16, weight: FontWeight.w600)),
+              ),
+              if (onTap != null)
+                ArcIcon('chevR', size: 17, color: AppColors.faint),
             ],
           ),
           const SizedBox(height: 10),
@@ -205,6 +272,8 @@ class _EntryCard extends StatelessWidget {
         ],
       ),
     );
+    if (onTap == null) return card;
+    return PressScale(onTap: onTap, scale: 0.985, child: card);
   }
 
   /// One set, drops included. A drop chain is one chip because it was one set:

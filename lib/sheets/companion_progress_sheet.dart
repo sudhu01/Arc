@@ -286,70 +286,77 @@ class _CompanionProgressSheetState extends State<CompanionProgressSheet> {
   Widget _selectedProgress(ExerciseRecord selRec, List<RecordPoint> selHist,
       bool selBw, num selDelta) {
     final ex = selRec.ex;
-    return Padding(
-      padding: const EdgeInsets.only(top: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              GroupDot(ex.group),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(ex.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppText.ui(size: 15.5, weight: FontWeight.w700)),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.baseline,
-                    textBaseline: TextBaseline.alphabetic,
-                    children: [
-                      Text(
-                          selBw
-                              ? '${selRec.best!.reps}'
-                              : ArcData.fmtScore(selRec.best!.score),
-                          style: AppText.mono(
-                              size: 34, weight: FontWeight.w700, height: 1)),
-                      const SizedBox(width: 8),
-                      Text(selBw ? 'best reps' : 'kg est. 1RM',
-                          style: AppText.ui(
-                              size: 14,
-                              weight: FontWeight.w600,
-                              color: AppColors.muted)),
-                    ],
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => Sheets.openCompanionPR(context, selRec),
+      child: Padding(
+        padding: const EdgeInsets.only(top: 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                GroupDot(ex.group),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(ex.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.ui(size: 15.5, weight: FontWeight.w700)),
+                ),
+                ArcIcon('chevR', size: 18, color: AppColors.faint),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.baseline,
+                      textBaseline: TextBaseline.alphabetic,
+                      children: [
+                        Text(
+                            selBw
+                                ? '${selRec.best!.reps}'
+                                : ArcData.fmtScore(selRec.best!.score),
+                            style: AppText.mono(
+                                size: 34, weight: FontWeight.w700, height: 1)),
+                        const SizedBox(width: 8),
+                        Text(selBw ? 'best reps' : 'kg est. 1RM',
+                            style: AppText.ui(
+                                size: 14,
+                                weight: FontWeight.w600,
+                                color: AppColors.muted)),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-              if (selDelta > 0) ...[
-                const SizedBox(width: 8),
-                ArcIcon('arrowUp', size: 13, color: AppColors.up),
-                const SizedBox(width: 3),
-                Text('+${ArcData.fmtScore(selDelta)}',
-                    style: AppText.ui(
-                        size: 13, weight: FontWeight.w700, color: AppColors.up)),
+                if (selDelta > 0) ...[
+                  const SizedBox(width: 8),
+                  ArcIcon('arrowUp', size: 13, color: AppColors.up),
+                  const SizedBox(width: 3),
+                  Text('+${ArcData.fmtScore(selDelta)}',
+                      style: AppText.ui(
+                          size: 13,
+                          weight: FontWeight.w700,
+                          color: AppColors.up)),
+                ],
               ],
-            ],
-          ),
-          const SizedBox(height: 8),
-          ProgressChart(
-            points: [
-              for (final h in selHist)
-                ProgressPoint(ArcData.parseISO(h.date), h.score),
-            ],
-            unit: selBw ? 'reps' : 'kg',
-            height: 150,
-          ),
-        ],
+            ),
+            const SizedBox(height: 8),
+            ProgressChart(
+              points: [
+                for (final h in selHist)
+                  ProgressPoint(ArcData.parseISO(h.date), h.score),
+              ],
+              unit: selBw ? 'reps' : 'kg',
+              height: 150,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -524,7 +531,7 @@ class _RecentRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final grp = ArcData.groupFromTitle(session.title);
+    final grp = ArcData.sessionGroup(session, data.exById);
     final names = session.entries
         .map((e) => data.exById(e.exerciseId)?.name)
         .where((n) => n != null)
@@ -546,8 +553,13 @@ class _RecentRow extends StatelessWidget {
                   children: [
                     GroupDot(grp),
                     const SizedBox(width: 7),
-                    Text(session.title,
-                        style: AppText.ui(size: 15.5, weight: FontWeight.w700)),
+                    Expanded(
+                      child: Text(session.displayTitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style:
+                              AppText.ui(size: 15.5, weight: FontWeight.w700)),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 2),

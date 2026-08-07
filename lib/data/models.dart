@@ -70,15 +70,36 @@ class Entry {
 class Session {
   final String id;
   final String date; // ISO yyyy-MM-dd
+
+  /// The title Arc derives from what was logged — "Push Day", "Leg Day". Kept
+  /// on every session, named or not: it's the fallback label, and it's the only
+  /// group signal a companion on a build that predates naming can read.
   final String title;
+
+  /// What the user called this workout, if they bothered. Normalized so it is
+  /// never an empty string — null always means "no name, use [title]".
+  final String? name;
+
   final List<Entry> entries;
 
   const Session({
     required this.id,
     required this.date,
     required this.title,
+    this.name,
     required this.entries,
   });
+
+  /// The label to show anywhere this workout is named: the user's word for it,
+  /// else the one Arc inferred.
+  String get displayTitle => name ?? title;
+}
+
+/// Trims a workout name down to what's worth storing. Blank in any form comes
+/// back as null, so `session.name != null` always means the user named it.
+String? normalizeSessionName(String? raw) {
+  final t = raw?.trim();
+  return (t == null || t.isEmpty) ? null : t;
 }
 
 /// A single point in an exercise's progression history.

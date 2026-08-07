@@ -241,6 +241,9 @@ class SyncService {
         'id': sid,
         'date': s['date'],
         'title': s['title'],
+        // Only carried when the workout actually has one, so an unnamed
+        // session's payload stays identical to what earlier versions pushed.
+        if (s['name'] != null) 'name': s['name'],
       };
       if (!deleted) {
         final entries = <Map<String, dynamic>>[];

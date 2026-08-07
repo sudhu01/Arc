@@ -181,7 +181,11 @@ class ArcStore extends ChangeNotifier {
   }
 
   /// Persist a session for [date] from draft entries. Detects new PRs.
-  Future<void> saveSession(String date, List<DraftEntry> rawEntries) async {
+  ///
+  /// [name] is what the user called this workout — blank or null clears it and
+  /// hands the label back to the derived title, which is written either way.
+  Future<void> saveSession(String date, List<DraftEntry> rawEntries,
+      {String? name}) async {
     final before = _records;
     final others = _sessions.where((s) => s.date != date).toList();
     final existing = sessionForDate(date);
@@ -194,12 +198,8 @@ class ArcStore extends ChangeNotifier {
       saved = Session(
         id: existing?.id ?? ArcData.uid('ses'),
         date: date,
-        title: ArcData.inferTitle(
-          rawEntries
-              .map((e) => Entry(id: e.id, exerciseId: e.exerciseId, sets: const []))
-              .toList(),
-          exById,
-        ),
+        title: ArcData.inferTitle(rawEntries.map((e) => e.exerciseId), exById),
+        name: normalizeSessionName(name),
         entries: rawEntries
             .map((e) => Entry(
                   id: ArcData.uid('ent'),

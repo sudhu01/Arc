@@ -578,7 +578,7 @@ class _RecentRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final store = context.read<ArcStore>();
-    final grp = ArcData.groupFromTitle(ses.title);
+    final grp = ArcData.sessionGroup(ses, store.exById);
     final names = ses.entries
         .map((e) => store.exById(e.exerciseId)?.name)
         .where((n) => n != null)
@@ -600,8 +600,15 @@ class _RecentRow extends StatelessWidget {
                   children: [
                     GroupDot(grp),
                     const SizedBox(width: 7),
-                    Text(ses.title,
-                        style: AppText.ui(size: 15.5, weight: FontWeight.w700)),
+                    // A workout the user named can run long; it ellipsizes here
+                    // rather than shoving the date out of the row.
+                    Expanded(
+                      child: Text(ses.displayTitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style:
+                              AppText.ui(size: 15.5, weight: FontWeight.w700)),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 2),

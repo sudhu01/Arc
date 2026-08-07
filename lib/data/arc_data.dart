@@ -15,10 +15,12 @@ class ArcData {
     'Core': 'Core Day',
   };
 
-  /// Recovers the muscle group from a session title. Day titles are matched
-  /// first because "Leg Day" doesn't literally contain "Legs"; a bare group
-  /// name is the fallback for custom titles. Legacy titles that name no group
-  /// keep their historical `Legs` reading.
+  /// Recovers the muscle group from a session title. Only a last resort now —
+  /// [sessionGroup] reads the group off the logged exercises, which a renamed
+  /// workout still answers correctly. Day titles are matched first because
+  /// "Leg Day" doesn't literally contain "Legs"; a bare group name is the
+  /// fallback for custom titles. Legacy titles that name no group keep their
+  /// historical `Legs` reading.
   static String groupFromTitle(String title) {
     for (final e in dayTitle.entries) {
       if (title.contains(e.value)) return e.key;
@@ -157,17 +159,49 @@ class ArcData {
     return '$mo $day';
   }
 
-  static String inferTitle(List<Entry> entries, Exercise? Function(String) exById) {
+  /// The muscle group most of a workout's exercises belong to. Null when
+  /// nothing resolves — an empty workout, or a companion's exercise this device
+  /// hasn't synced. Ties break in [groups] order, so the inferred title and the
+  /// dot drawn beside it can never disagree.
+  ///
+  /// Takes exercise ids rather than entries so a draft still being edited can
+  /// ask the same question a saved session does.
+  static String? dominantGroup(
+      Iterable<String> exerciseIds, Exercise? Function(String) exById) {
     final count = <String, int>{};
-    for (final e in entries) {
-      final g = exById(e.exerciseId)?.group;
+    for (final id in exerciseIds) {
+      final g = exById(id)?.group;
       if (g == null) continue;
       count[g] = (count[g] ?? 0) + 1;
     }
-    if (count.isEmpty) return 'Workout';
-    final top = count.keys.toList()..sort((a, b) => count[b]!.compareTo(count[a]!));
-    return dayTitle[top.first] ?? 'Workout';
+    if (count.isEmpty) return null;
+    int rank(String g) {
+      final i = groups.indexOf(g);
+      return i < 0 ? groups.length : i;
+    }
+
+    final ordered = count.keys.toList()
+      ..sort((a, b) {
+        final byCount = count[b]!.compareTo(count[a]!);
+        return byCount != 0 ? byCount : rank(a).compareTo(rank(b));
+      });
+    return ordered.first;
   }
+
+  /// The title Arc gives a workout the user didn't name.
+  static String inferTitle(
+      Iterable<String> exerciseIds, Exercise? Function(String) exById) {
+    final top = dominantGroup(exerciseIds, exById);
+    return top == null ? 'Workout' : (dayTitle[top] ?? 'Workout');
+  }
+
+  /// The group a saved session belongs to — read from what was actually logged
+  /// rather than from its label, so a workout the user renamed "Chest & Arms"
+  /// still carries the right dot. Only sessions whose exercises are all missing
+  /// fall back to parsing the old derived title.
+  static String sessionGroup(Session s, Exercise? Function(String) exById) =>
+      dominantGroup(s.entries.map((e) => e.exerciseId), exById) ??
+      groupFromTitle(s.title);
 
   static WorkoutStats workoutStats(List<Session> sessions) {
     var totalSets = 0;

@@ -21,7 +21,7 @@ class AppDatabase {
   final Database db;
 
   static const _dbName = 'arc.db';
-  static const _version = 4;
+  static const _version = 5;
 
   /// Open the database. [factory] and [path] are injectable so tests can run
   /// against an in-memory sqflite_common_ffi database.
@@ -54,6 +54,11 @@ class AppDatabase {
     if (oldVersion < 4) {
       await db.execute(_dropsTable);
       await db.execute(_dropsIndex);
+    }
+    // v5: a user-given name for a workout. Nullable — existing sessions keep
+    // only the derived `title`, which is still what shows when nothing is set.
+    if (oldVersion < 5) {
+      await db.execute('ALTER TABLE sessions ADD COLUMN name TEXT');
     }
   }
 
@@ -129,7 +134,8 @@ class AppDatabase {
       CREATE TABLE sessions (
         id         TEXT PRIMARY KEY,
         date       TEXT NOT NULL,               -- ISO yyyy-MM-dd
-        title      TEXT NOT NULL,
+        title      TEXT NOT NULL,               -- derived: Push Day | Leg Day | …
+        name       TEXT,                        -- user-given name; null = use title
         owner_id   TEXT NOT NULL,
         updated_at INTEGER NOT NULL,
         deleted    INTEGER NOT NULL DEFAULT 0,
@@ -412,6 +418,7 @@ class AppDatabase {
               id: s['id'] as String,
               date: s['date'] as String,
               title: s['title'] as String,
+              name: normalizeSessionName(s['name'] as String?),
               entries: entriesBySession[s['id'] as String] ?? const [],
             ))
         .toList();
@@ -427,6 +434,7 @@ class AppDatabase {
           'id': s.id,
           'date': s.date,
           'title': s.title,
+          'name': s.name,
           'owner_id': ownerId,
           'updated_at': DateTime.now().millisecondsSinceEpoch,
           'deleted': 0,
@@ -562,6 +570,8 @@ class AppDatabase {
           'id': id,
           'date': p['date'] ?? '',
           'title': p['title'] ?? '',
+          // Absent on payloads from a build that predates workout names.
+          'name': normalizeSessionName(p['name'] as String?),
           'owner_id': ownerId,
           'updated_at': updatedAt,
           'deleted': deleted ? 1 : 0,

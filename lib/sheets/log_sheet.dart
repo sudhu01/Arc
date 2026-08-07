@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show LengthLimitingTextInputFormatter;
 import 'package:provider/provider.dart';
 import '../data/arc_data.dart';
 import '../data/store.dart';
@@ -24,6 +25,15 @@ class _LogSheetState extends State<LogSheet> {
   final _searchController = TextEditingController();
   String _query = '';
 
+  /// What the user is calling this workout. Empty means unnamed — the derived
+  /// title stands in, and the field shows it as its placeholder.
+  final _nameController = TextEditingController();
+  final _nameFocus = FocusNode();
+
+  /// Mirrors "the name field has text in it", so typing only rebuilds the sheet
+  /// on the one keystroke that flips it rather than on every letter.
+  bool _named = false;
+
   @override
   void initState() {
     super.initState();
@@ -32,6 +42,8 @@ class _LogSheetState extends State<LogSheet> {
     _draftDate = d;
     final existing = store.sessionForDate(d);
     if (existing != null) {
+      _nameController.text = existing.name ?? '';
+      _named = _nameController.text.isNotEmpty;
       _entries = existing.entries
           .map((e) => DraftEntry(
                 id: ArcData.uid('ent'),
@@ -67,6 +79,8 @@ class _LogSheetState extends State<LogSheet> {
   @override
   void dispose() {
     _searchController.dispose();
+    _nameController.dispose();
+    _nameFocus.dispose();
     super.dispose();
   }
 
@@ -96,7 +110,8 @@ class _LogSheetState extends State<LogSheet> {
   int get _totalSets => _entries.fold(0, (a, e) => a + e.sets.length);
 
   Future<void> _save() async {
-    await store.saveSession(_draftDate, _entries);
+    await store.saveSession(_draftDate, _entries,
+        name: _nameController.text);
     if (mounted) Navigator.of(context).maybePop();
   }
 
@@ -155,7 +170,7 @@ class _LogSheetState extends State<LogSheet> {
           child: ListView(
             padding: const EdgeInsets.only(top: 12, bottom: 16),
             children: [
-              _dateSelector(),
+              _sessionHeader(),
               const SizedBox(height: 16),
               if (_entries.isEmpty)
                 Padding(
@@ -212,56 +227,183 @@ class _LogSheetState extends State<LogSheet> {
     );
   }
 
-  Widget _dateSelector() {
-    final atToday = _draftDate.compareTo(ArcData.iso(ArcData.today)) >= 0;
-    Widget navBtn(String icon, VoidCallback onTap, {bool dim = false}) =>
-        Opacity(
-          opacity: dim ? 0.3 : 1,
-          child: GestureDetector(
-            onTap: dim ? null : onTap,
-            child: Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: AppRadii.rSm,
-                boxShadow: AppShadows.sm,
-              ),
-              child: Icon(ArcIcons.byName(icon), size: 20, color: AppColors.ink),
-            ),
-          ),
-        );
-
+  /// When and what: the two facts that identify a workout, held in one block
+  /// so they read as the session's header rather than as two more controls
+  /// stacked above the sets.
+  Widget _sessionHeader() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
       decoration: BoxDecoration(
         color: AppColors.surface2,
         borderRadius: AppRadii.rMd,
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: Column(
         children: [
-          navBtn('chevL', () {
-            setState(() => _draftDate =
-                ArcData.iso(ArcData.addDays(ArcData.parseISO(_draftDate), -1)));
-          }),
-          Column(
-            children: [
-              Text(ArcData.fmtDate(_draftDate, 'long'),
-                  style: AppText.ui(size: 16.5, weight: FontWeight.w700)),
-              Text(ArcData.relDate(_draftDate),
-                  style: AppText.ui(
-                      size: 12, weight: FontWeight.w600, color: AppColors.muted)),
-            ],
-          ),
-          navBtn('chevR', () {
-            final n = ArcData.addDays(ArcData.parseISO(_draftDate), 1);
-            if (!n.isAfter(ArcData.today)) {
-              setState(() => _draftDate = ArcData.iso(n));
-            }
-          }, dim: atToday),
+          _dateRow(),
+          const SizedBox(height: 8),
+          _nameField(),
         ],
       ),
+    );
+  }
+
+  /// Optional name for the workout, sitting on the same raised white surface as
+  /// the date arrows either side of it, so it reads as part of the instrument.
+  ///
+  /// Left empty it shows the title Arc will derive from the exercises below —
+  /// the placeholder is the actual default, not a prompt, so nobody has to save
+  /// once to find out what their workout gets called.
+  Widget _nameField() {
+    final inferred =
+        ArcData.inferTitle(_entries.map((e) => e.exerciseId), store.exById);
+    final instant = MediaQuery.disableAnimationsOf(context);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: AppRadii.rSm,
+        boxShadow: AppShadows.sm,
+      ),
+      padding: const EdgeInsets.only(left: 12),
+      child: Row(
+        children: [
+          ArcIcon('pencil',
+              size: 16, color: _named ? AppColors.muted : AppColors.faint),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Semantics(
+              label: 'Workout name',
+              hint: _named
+                  ? null
+                  : 'Optional. Unnamed, this workout is called $inferred',
+              child: TextField(
+                controller: _nameController,
+                focusNode: _nameFocus,
+                maxLines: 1,
+                textCapitalization: TextCapitalization.words,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => _nameFocus.unfocus(),
+                // Without this the keyboard stays up and the name is left
+                // half-typed behind whatever the next tap lands on.
+                onTapOutside: (_) => _nameFocus.unfocus(),
+                onChanged: (v) {
+                  final has = v.trim().isNotEmpty;
+                  if (has != _named) setState(() => _named = has);
+                },
+                inputFormatters: [LengthLimitingTextInputFormatter(40)],
+                cursorColor: AppColors.accentStrong,
+                style: AppText.ui(
+                    size: 15.5, weight: FontWeight.w700, letterSpacing: -0.15),
+                decoration: InputDecoration(
+                  isCollapsed: true,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 13),
+                  border: InputBorder.none,
+                  hintText: inferred,
+                  // Muted, not faint: this placeholder states a fact about the
+                  // workout, so it has to be as readable as the value it stands
+                  // in for. Weight carries the difference instead.
+                  hintStyle: AppText.ui(
+                      size: 15.5,
+                      weight: FontWeight.w500,
+                      color: AppColors.muted),
+                ),
+              ),
+            ),
+          ),
+          AnimatedSwitcher(
+            duration: Duration(milliseconds: instant ? 0 : 150),
+            switchInCurve: Curves.easeOutQuart,
+            transitionBuilder: (child, anim) => FadeTransition(
+              opacity: anim,
+              child: ScaleTransition(
+                  scale: Tween(begin: 0.72, end: 1.0).animate(anim),
+                  child: child),
+            ),
+            child: _named
+                ? Semantics(
+                    key: const ValueKey('clear'),
+                    button: true,
+                    label: 'Clear workout name',
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () {
+                        _nameController.clear();
+                        setState(() => _named = false);
+                      },
+                      child: SizedBox(
+                        width: 44,
+                        height: 44,
+                        child: Icon(ArcIcons.byName('x'),
+                            size: 16, color: AppColors.muted),
+                      ),
+                    ),
+                  )
+                : const SizedBox(key: ValueKey('empty'), width: 12, height: 44),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _dateRow() {
+    final atToday = _draftDate.compareTo(ArcData.iso(ArcData.today)) >= 0;
+    Widget navBtn(String icon, String label, VoidCallback onTap,
+            {bool dim = false}) =>
+        Opacity(
+          opacity: dim ? 0.3 : 1,
+          child: Semantics(
+            button: true,
+            enabled: !dim,
+            label: label,
+            child: GestureDetector(
+              onTap: dim ? null : onTap,
+              child: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: AppRadii.rSm,
+                  boxShadow: AppShadows.sm,
+                ),
+                child:
+                    Icon(ArcIcons.byName(icon), size: 20, color: AppColors.ink),
+              ),
+            ),
+          ),
+        );
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        navBtn('chevL', 'Previous day', () {
+          setState(() => _draftDate =
+              ArcData.iso(ArcData.addDays(ArcData.parseISO(_draftDate), -1)));
+        }),
+        // Scales down rather than colliding with the arrows at large system
+        // text sizes, the way the steppers below it do.
+        Flexible(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Column(
+              children: [
+                Text(ArcData.fmtDate(_draftDate, 'long'),
+                    style: AppText.ui(size: 16.5, weight: FontWeight.w700)),
+                Text(ArcData.relDate(_draftDate),
+                    style: AppText.ui(
+                        size: 12,
+                        weight: FontWeight.w600,
+                        color: AppColors.muted)),
+              ],
+            ),
+          ),
+        ),
+        navBtn('chevR', 'Next day', () {
+          final n = ArcData.addDays(ArcData.parseISO(_draftDate), 1);
+          if (!n.isAfter(ArcData.today)) {
+            setState(() => _draftDate = ArcData.iso(n));
+          }
+        }, dim: atToday),
+      ],
     );
   }
 

@@ -151,7 +151,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                   final isToday = iso == ArcData.iso(today);
                   final future = dt.isAfter(today);
                   final grp =
-                      ses == null ? null : ArcData.groupFromTitle(ses.title);
+                      ses == null ? null : ArcData.sessionGroup(ses, store.exById);
                   return Opacity(
                     opacity: future ? 0.32 : 1,
                     child: GestureDetector(
