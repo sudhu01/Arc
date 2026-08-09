@@ -59,8 +59,11 @@ class ArcIcons {
         return Icons.qr_code_scanner_rounded;
       case 'image':
         return Icons.photo_library_outlined;
+      // The three-node graph, not the iOS box-and-arrow: it reads as "send this
+      // to someone" on both platforms, where the box-arrow means "open the
+      // share sheet" only to an iPhone user.
       case 'share':
-        return Icons.ios_share_rounded;
+        return Icons.share_rounded;
       case 'copy':
         return Icons.content_copy_rounded;
       case 'paste':

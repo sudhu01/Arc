@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:math' show pi, sin;
+import 'dart:math' show max, pi, sin;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -111,6 +111,53 @@ class _CopyIconButtonState extends State<CopyIconButton>
               ),
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+/// Round icon button seated on a sheet's title row, matching the close button
+/// beside it.
+///
+/// The 34px circle is the shared visual, but the tap target is padded out to
+/// the 44px minimum — a gym-floor thumb has to be able to hit it.
+class SheetIconButton extends StatelessWidget {
+  final String icon;
+  final VoidCallback onTap;
+  final String semanticLabel;
+  final double size;
+
+  const SheetIconButton({
+    super.key,
+    required this.icon,
+    required this.onTap,
+    required this.semanticLabel,
+    this.size = 34,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: semanticLabel,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: SizedBox(
+          width: max(size, 44),
+          height: max(size, 44),
+          child: Center(
+            child: Container(
+              width: size,
+              height: size,
+              decoration: BoxDecoration(
+                color: AppColors.surface2,
+                shape: BoxShape.circle,
+              ),
+              child: ArcIcon(icon, size: size * 0.53, color: AppColors.muted),
+            ),
+          ),
         ),
       ),
     );
