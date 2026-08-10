@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../body/body_view.dart';
@@ -67,17 +68,31 @@ class _LibraryState extends State<Library> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('Exercises',
-                      style: AppText.ui(
-                          size: titleStyleSize,
-                          weight: FontWeight.w700,
-                          letterSpacing: -0.96)),
-                  ArcButton(
-                    label: 'New',
-                    icon: 'plus',
-                    size: BtnSize.sm,
-                    variant: BtnVariant.soft,
-                    onTap: () => Sheets.openAddExercise(context),
+                  // Flexible so the title ellipsizes rather than shoving the
+                  // controls off the row at large system text scales.
+                  Flexible(
+                    child: Text('Exercises',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppText.ui(
+                            size: titleStyleSize,
+                            weight: FontWeight.w700,
+                            letterSpacing: -0.96)),
+                  ),
+                  const SizedBox(width: 8),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const _PaletteButton(),
+                      const SizedBox(width: 4),
+                      ArcButton(
+                        label: 'New',
+                        icon: 'plus',
+                        size: BtnSize.sm,
+                        variant: BtnVariant.soft,
+                        onTap: () => Sheets.openAddExercise(context),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -200,6 +215,93 @@ class _ListMode extends StatelessWidget {
   }
 }
 
+/// Opens the group-colour picker.
+///
+/// It wears the palette instead of a paint-tin glyph: four dots in the four
+/// region colours, which are summarised live from the user's own thirteen. So
+/// the control shows the setting it opens — the same trick the Appearance
+/// button plays by drawing itself in the active accent — and after a recolour
+/// this button is the first thing that proves it took.
+class _PaletteButton extends StatelessWidget {
+  const _PaletteButton();
+
+  @override
+  Widget build(BuildContext context) {
+    const dot = 7.0;
+    const gap = 3.0;
+
+    Widget swatch(String region) => Container(
+          width: dot,
+          height: dot,
+          decoration: BoxDecoration(
+            color: AppColors.group(region),
+            shape: BoxShape.circle,
+          ),
+        );
+
+    void open() {
+      HapticFeedback.selectionClick();
+      Sheets.openMuscleColors(context);
+    }
+
+    return Semantics(
+      button: true,
+      label: 'Group colors',
+      // ExcludeSemantics below drops the gesture detector's own action, so
+      // without this the button announces as one that cannot be pressed.
+      onTap: open,
+      child: ExcludeSemantics(
+        child: Tooltip(
+          message: 'Group colors',
+          child: PressScale(
+            onTap: open,
+            borderRadius: AppRadii.rMd,
+            // The square matches the height of the New button beside it; the
+            // 44px box around it is the tap target PRODUCT requires, which the
+            // 34px visual can't supply on its own.
+            child: SizedBox(
+              width: 44,
+              height: 44,
+              child: Center(
+                child: Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: AppColors.surface2,
+                    borderRadius: AppRadii.rMd,
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          swatch(MuscleRegion.push),
+                          const SizedBox(width: gap),
+                          swatch(MuscleRegion.pull),
+                        ],
+                      ),
+                      const SizedBox(height: gap),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          swatch(MuscleRegion.legs),
+                          const SizedBox(width: gap),
+                          swatch(MuscleRegion.core),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _SectionHeader extends StatelessWidget {
   final Muscle muscle;
   final int count;
@@ -227,7 +329,7 @@ class _SectionHeader extends StatelessWidget {
             padding: const EdgeInsets.only(left: 2, right: 2),
             child: Row(
               children: [
-                GroupDot(muscle.region),
+                MuscleDot(muscle),
                 const SizedBox(width: 8),
                 Text(muscle.label.toUpperCase(),
                     style: AppText.ui(

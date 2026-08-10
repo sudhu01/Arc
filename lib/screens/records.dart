@@ -77,7 +77,7 @@ class _RecordRow extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    GroupDot(ex.region),
+                    MuscleDot(ex.muscle),
                     const SizedBox(width: 7),
                     Flexible(
                       child: Text(ex.name,

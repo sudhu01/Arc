@@ -3,13 +3,16 @@ import 'package:flutter/services.dart';
 
 import '../theme/accent.dart';
 import '../theme/app_theme.dart';
+import '../theme/muscle_palette.dart';
 
-/// The accent hue track.
+/// A hue track.
 ///
-/// The ramp is painted from the accents Arc would actually derive at each hue,
+/// The ramp is painted from the colours Arc would actually derive at each hue,
 /// not a generic HSV rainbow — so the gradient is a preview of outcomes rather
 /// than decoration, and the dip in chroma around blue is honest about what the
-/// user will get.
+/// user will get. [AccentHueSlider] and [MuscleHueSlider] below supply their own
+/// ramps and share everything else, which is what keeps the accent picker and
+/// the group-colour picker feeling like one control rather than two.
 ///
 /// Built from a raw gesture recognizer like [ArcStepper] rather than Material's
 /// `Slider`, which arrives with its own overlay, tick and value-indicator
@@ -19,15 +22,26 @@ class HueSlider extends StatefulWidget {
     super.key,
     required this.hue,
     required this.onChanged,
-    required this.dark,
+    required this.ramp,
+    required this.swatch,
+    required this.semanticsLabel,
+    required this.bandName,
   });
 
   final int hue;
   final ValueChanged<int> onChanged;
 
-  /// Which theme's ramp to paint. Passed in rather than read from [ArcTheme]
-  /// so the track is correct on the frame the mode flips.
-  final bool dark;
+  /// Gradient stops across 0..359, left to right.
+  final List<Color> ramp;
+
+  /// Thumb fill — the colour the current hue actually resolves to.
+  final Color swatch;
+
+  final String semanticsLabel;
+
+  /// Names the band a hue falls in, for the screen-reader value and for the
+  /// detent haptic.
+  final String Function(int) bandName;
 
   @override
   State<HueSlider> createState() => _HueSliderState();
@@ -43,13 +57,6 @@ class _HueSliderState extends State<HueSlider> {
   bool _dragging = false;
   String? _lastBand;
 
-  /// 24 stops (every 15°) — dense enough that the ramp reads as continuous,
-  /// cheap enough to rebuild during a drag.
-  List<Color> _ramp() => [
-        for (var h = 0; h <= 360; h += 15)
-          AccentRamp.derive(h % 360, dark: widget.dark).accent,
-      ];
-
   void _emit(double dx, double travel) {
     // Guard the degenerate layout: a track narrower than its thumb would divide
     // by zero and hand `round()` a NaN, which throws.
@@ -60,7 +67,7 @@ class _HueSliderState extends State<HueSlider> {
 
     // A detent at each named band gives the drag a sense of structure without
     // quantizing the value itself.
-    final band = AccentRamp.nameFor(hue);
+    final band = widget.bandName(hue);
     if (band != _lastBand) {
       _lastBand = band;
       HapticFeedback.selectionClick();
@@ -73,16 +80,11 @@ class _HueSliderState extends State<HueSlider> {
     // Honor reduced motion: the thumb should still track the finger, but it
     // shouldn't grow or ease.
     final reduceMotion = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
-    final tokens = AccentRamp.derive(widget.hue, dark: widget.dark);
-    final isDefault =
-        widget.hue == AccentRamp.defaultHue(dark: widget.dark);
-    final swatch =
-        isDefault ? ArcTheme.palette.accent : tokens.accent;
 
     return Semantics(
       slider: true,
-      label: 'Accent hue',
-      value: '${AccentRamp.nameFor(widget.hue)}, ${widget.hue} degrees',
+      label: widget.semanticsLabel,
+      value: '${widget.bandName(widget.hue)}, ${widget.hue} degrees',
       increasedValue: '${(widget.hue + 5) % 360} degrees',
       decreasedValue: '${(widget.hue - 5) % 360} degrees',
       onIncrease: () => widget.onChanged((widget.hue + 5) % 360),
@@ -120,7 +122,7 @@ class _HueSliderState extends State<HueSlider> {
                       height: _trackHeight,
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(_trackHeight / 2),
-                        gradient: LinearGradient(colors: _ramp()),
+                        gradient: LinearGradient(colors: widget.ramp),
                         border: Border.all(color: AppColors.cardLine),
                       ),
                     ),
@@ -136,7 +138,7 @@ class _HueSliderState extends State<HueSlider> {
                         width: _thumbSize,
                         height: _thumbSize,
                         decoration: BoxDecoration(
-                          color: swatch,
+                          color: widget.swatch,
                           shape: BoxShape.circle,
                           // The ring is what keeps the thumb legible at every
                           // hue — against a same-hue track, colour alone can't
@@ -154,6 +156,80 @@ class _HueSliderState extends State<HueSlider> {
           );
         },
       ),
+    );
+  }
+}
+
+/// The accent hue track, ramped through [AccentRamp].
+class AccentHueSlider extends StatelessWidget {
+  const AccentHueSlider({
+    super.key,
+    required this.hue,
+    required this.onChanged,
+    required this.dark,
+  });
+
+  final int hue;
+  final ValueChanged<int> onChanged;
+
+  /// Which theme's ramp to paint. Passed in rather than read from [ArcTheme]
+  /// so the track is correct on the frame the mode flips.
+  final bool dark;
+
+  @override
+  Widget build(BuildContext context) {
+    // At the shipped hue the palette bypasses derivation entirely, so the thumb
+    // has to read the hand-tuned constant or it sits a shade off the app behind
+    // it.
+    final isDefault = hue == AccentRamp.defaultHue(dark: dark);
+    return HueSlider(
+      hue: hue,
+      onChanged: onChanged,
+      // 25 stops (every 15°) — dense enough that the ramp reads as continuous,
+      // cheap enough to rebuild during a drag.
+      ramp: [
+        for (var h = 0; h <= 360; h += 15)
+          AccentRamp.derive(h % 360, dark: dark).accent,
+      ],
+      swatch:
+          isDefault ? ArcTheme.palette.accent : AccentRamp.derive(hue, dark: dark).accent,
+      semanticsLabel: 'Accent hue',
+      bandName: AccentRamp.nameFor,
+    );
+  }
+}
+
+/// The group-colour hue track, ramped through [MuscleRamp].
+///
+/// Flatter than the accent ramp by design: every stop is the same lightness, so
+/// the track reads as one continuous band of equal-weight colour — which is
+/// exactly the promise the picker is making about the thirteen dots.
+class MuscleHueSlider extends StatelessWidget {
+  const MuscleHueSlider({
+    super.key,
+    required this.hue,
+    required this.onChanged,
+    required this.label,
+  });
+
+  final int hue;
+  final ValueChanged<int> onChanged;
+
+  /// The group being edited, for the screen-reader label — "Chest colour"
+  /// rather than a thirteenth anonymous slider.
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return HueSlider(
+      hue: hue,
+      onChanged: onChanged,
+      ramp: [
+        for (var h = 0; h <= 360; h += 15) MuscleRamp.color(h % 360),
+      ],
+      swatch: MuscleRamp.color(hue),
+      semanticsLabel: '$label color',
+      bandName: MuscleRamp.nameFor,
     );
   }
 }

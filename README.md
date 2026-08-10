@@ -31,6 +31,10 @@ and run the *Go* server (refer to instructions in the server README) on your mac
   mutual-accept; either side can block or remove the relationship.
 - **Appearance** — light/dark mode and a hue picker for the accent color,
   with sane contrast-safe bounds derived per hue.
+- **Group colors** — all thirteen muscle groups ship with their own distinct
+  color and can each be repointed to any hue from the Exercises screen. The
+  four coarse region colors are summarized from them, so the calendar and
+  session dots follow along.
 - **Sync** — an identity keypair backed by a recovery phrase, with changes
   pushed/pulled to a companion-sync server so paired devices stay in sync.
 
@@ -45,6 +49,8 @@ lib/
     accent.dart                Per-hue accent token derivation (contrast-checked)
     oklch.dart                 OKLCH↔sRGB color conversion
     theme_controller.dart      Light/dark + accent hue state, persisted to the DB
+    muscle_palette.dart        Per-muscle-group hues + defaults; region color from them
+    muscle_palette_controller.dart  Group hue overrides, persisted to the DB
   data/
     models.dart                Exercise, WorkoutSet, Entry, Session, records, Companion
     arc_data.dart               Seed data, metrics, date helpers (port of arc-data.js)
@@ -60,11 +66,12 @@ lib/
     arc_icons.dart              Icon-name → Material rounded glyph mapping
     ui.dart                     Card, StatTile, Segmented, ArcStepper, ArcButton, Tag…
     charts.dart                 LineChart, ProgressChart, Spark, Bars (CustomPainter)
-    hue_slider.dart             Accent hue picker control
+    hue_slider.dart             Hue track; accent + group-color variants
+    muscle_picker.dart          The thirteen groups as selectable pills
     sheet.dart                  Arc-styled bottom-sheet scaffold
   screens/                     Dashboard, Records, Calendar, Library, HomeShell
   sheets/                      PR detail, Day detail, Log workout, Add exercise,
-                                Companion hub + progress, Appearance
+                                Companion hub + progress, Appearance, Group colors
 assets/fonts/                  Bundled variable fonts (offline; wght axis driven directly)
 
 server/                        Go sync relay (see server/README.md)

@@ -479,7 +479,7 @@ class _LogSheetState extends State<LogSheet> {
         children: [
           Row(
             children: [
-              GroupDot(ex.region),
+              MuscleDot(ex.muscle),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(ex.name,
@@ -846,7 +846,7 @@ class _LogSheetState extends State<LogSheet> {
             padding: const EdgeInsets.fromLTRB(2, 4, 2, 8),
             child: Row(
               children: [
-                GroupDot(g.region),
+                MuscleDot(g),
                 const SizedBox(width: 7),
                 Text(g.label.toUpperCase(),
                     style: AppText.ui(

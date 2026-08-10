@@ -53,15 +53,13 @@ class PRDetailSheet extends StatelessWidget {
         // group + tag row
         Row(
           children: [
-            GroupDot(ex.region),
+            MuscleDot(ex.muscle),
             const SizedBox(width: 8),
             // The dot carries the coarse region; spell out the muscle, which is
             // the more specific thing and the only one worth the words.
             Text(ex.muscle.label,
                 style: AppText.ui(
                     size: 13.5, weight: FontWeight.w600, color: AppColors.muted)),
-            const SizedBox(width: 8),
-            const Tag('Personal Record'),
           ],
         ),
         const SizedBox(height: 16),

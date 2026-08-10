@@ -140,7 +140,7 @@ class _ReviewRow extends StatelessWidget {
                                 size: 15, weight: FontWeight.w600)),
                       ),
                       const SizedBox(width: 10),
-                      GroupDot(exercise.region, size: 8),
+                      MuscleDot(exercise.muscle, size: 8),
                       const SizedBox(width: 7),
                       Text(
                         exercise.muscle.label,

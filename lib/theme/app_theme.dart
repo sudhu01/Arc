@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'accent.dart';
+import 'muscle_palette.dart';
 
 /// A complete set of design tokens for one Arc theme.
 ///
@@ -329,11 +330,9 @@ class AppColors {
     BoxShadow(color: Color(0x2E000000), blurRadius: 40, offset: Offset(0, -10)),
   ];
 
-  // Muscle-group dots — oklch(0.68 0.15 H); theme-independent in the design.
-  static const groupPush = Color(0xFFE66F62);
-  static const groupPull = Color(0xFF539AF2);
-  static const groupLegs = Color(0xFF45B164);
-  static const groupCore = Color(0xFFC077D1);
+  // Muscle-group colour lives in `MusclePalette` now: thirteen groups each own
+  // a hue the user can repoint, all at the design's `oklch(0.68 0.15 H)`, and
+  // theme-independent as it has always been. See `theme/muscle_palette.dart`.
 
   // The figure on the Exercises screen.
   //
@@ -349,20 +348,10 @@ class AppColors {
   static Color get bodyInk =>
       Color.lerp(_p.ink, _p.accentStrong, 0.22) ?? _p.ink;
 
-  static Color group(String g) {
-    switch (g) {
-      case 'Push':
-        return groupPush;
-      case 'Pull':
-        return groupPull;
-      case 'Legs':
-        return groupLegs;
-      case 'Core':
-        return groupCore;
-      default:
-        return groupPush;
-    }
-  }
+  /// The colour of a coarse region — what the calendar and the session dots
+  /// speak. Summarised from the groups inside it rather than held separately;
+  /// see [MusclePalette.regionColor].
+  static Color group(String g) => MusclePalette.regionColor(g);
 }
 
 /// Corner radii for the active theme.

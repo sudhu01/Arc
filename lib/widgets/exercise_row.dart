@@ -85,7 +85,7 @@ class ExerciseRow extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
             child: Row(
               children: [
-                GroupDot(exercise.region, size: 10),
+                MuscleDot(exercise.muscle, size: 10),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(

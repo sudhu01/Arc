@@ -4,7 +4,9 @@ import 'dart:math' show max, pi, sin;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../data/arc_data.dart';
+import '../data/muscle.dart';
 import '../theme/app_theme.dart';
+import '../theme/muscle_palette.dart';
 import 'arc_icons.dart';
 
 /// Round icon button that copies text and morphs its glyph into a tick to
@@ -659,7 +661,12 @@ class _DecimalInputFormatter extends TextInputFormatter {
   }
 }
 
-/// Group color dot.
+/// Region colour dot — Push | Pull | Legs | Core.
+///
+/// For the surfaces that speak the coarse tier and have no finer group to name:
+/// a calendar day, its legend, a session's title. Anywhere an [Exercise] or a
+/// [Muscle] is in hand, use [MuscleDot] instead — it is the one the user can
+/// recolour, and the one that tells thirteen groups apart rather than four.
 class GroupDot extends StatelessWidget {
   final String group;
   final double size;
@@ -672,6 +679,25 @@ class GroupDot extends StatelessWidget {
       height: size,
       decoration: BoxDecoration(
         color: AppColors.group(group),
+        shape: BoxShape.circle,
+      ),
+    );
+  }
+}
+
+/// Muscle-group colour dot — the user's colour for one of the thirteen groups.
+class MuscleDot extends StatelessWidget {
+  final Muscle muscle;
+  final double size;
+  const MuscleDot(this.muscle, {super.key, this.size = 9});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: MusclePalette.of(muscle),
         shape: BoxShape.circle,
       ),
     );

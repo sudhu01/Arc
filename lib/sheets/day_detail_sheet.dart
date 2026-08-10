@@ -251,7 +251,7 @@ class _EntryCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              GroupDot(exercise.region),
+              MuscleDot(exercise.muscle),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(exercise.name,

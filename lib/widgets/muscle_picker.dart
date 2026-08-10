@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../data/muscle.dart';
 import '../theme/app_theme.dart';
+import 'ui.dart';
 
 /// The thirteen muscle groups as a wrap of pills.
 ///
@@ -12,9 +13,9 @@ import '../theme/app_theme.dart';
 /// group in a form is not the accent's job, and a wall of volt would drown the
 /// one control that is.
 ///
-/// Every pill keeps its region dot in both states, so the coarse Push/Pull/
-/// Legs/Core tier stays readable and group identity is never carried by colour
-/// on its own.
+/// Every pill keeps its group dot in both states, so the colour the user filed
+/// the group under stays readable — and group identity is never carried by
+/// colour on its own, since the name is right beside it.
 class MusclePicker extends StatelessWidget {
   final Set<Muscle> selected;
   final ValueChanged<Muscle> onTap;
@@ -23,11 +24,17 @@ class MusclePicker extends StatelessWidget {
   /// user is choosing secondaries, since a lift can't support itself.
   final Set<Muscle> disabled;
 
+  /// Bigger where the colour is the point rather than a tag — the group-colour
+  /// picker, where the user is comparing thirteen swatches against each other
+  /// and a 7px dot is not enough to judge.
+  final double dotSize;
+
   const MusclePicker({
     super.key,
     required this.selected,
     required this.onTap,
     this.disabled = const {},
+    this.dotSize = 7,
   });
 
   @override
@@ -41,6 +48,7 @@ class MusclePicker extends StatelessWidget {
             muscle: m,
             selected: selected.contains(m),
             disabled: disabled.contains(m),
+            dotSize: dotSize,
             onTap: () => onTap(m),
           ),
       ],
@@ -52,12 +60,14 @@ class _MusclePill extends StatelessWidget {
   final Muscle muscle;
   final bool selected;
   final bool disabled;
+  final double dotSize;
   final VoidCallback onTap;
 
   const _MusclePill({
     required this.muscle,
     required this.selected,
     required this.disabled,
+    required this.dotSize,
     required this.onTap,
   });
 
@@ -78,14 +88,7 @@ class _MusclePill extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: 7,
-            height: 7,
-            decoration: BoxDecoration(
-              color: AppColors.group(muscle.region),
-              shape: BoxShape.circle,
-            ),
-          ),
+          MuscleDot(muscle, size: dotSize),
           const SizedBox(width: 8),
           Text(
             muscle.label,

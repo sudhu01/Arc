@@ -78,6 +78,8 @@ class ArcIcons {
         return Icons.verified_user_outlined;
       case 'refresh':
         return Icons.sync_rounded;
+      case 'palette':
+        return Icons.palette_outlined;
       default:
         return Icons.circle_outlined;
     }

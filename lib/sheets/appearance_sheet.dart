@@ -71,7 +71,7 @@ class AppearanceSheet extends StatelessWidget {
             ),
           ],
         ),
-        HueSlider(
+        AccentHueSlider(
           hue: hue,
           dark: dark,
           onChanged: theme.setAccentHue,

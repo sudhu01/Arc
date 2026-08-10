@@ -104,7 +104,7 @@ class _Stats extends StatelessWidget {
 
     return Row(
       children: [
-        GroupDot(muscle.region, size: 9),
+        MuscleDot(muscle, size: 9),
         const SizedBox(width: 8),
         Expanded(
           child: Text(

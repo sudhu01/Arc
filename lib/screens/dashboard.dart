@@ -245,7 +245,7 @@ class _DashboardState extends State<Dashboard> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          GroupDot(r.ex.region),
+                          MuscleDot(r.ex.muscle),
                           if (isNew) const Tag('New'),
                         ],
                       ),
@@ -395,7 +395,7 @@ class _DashboardState extends State<Dashboard> {
         padding: const EdgeInsets.symmetric(vertical: 11),
         child: Row(
           children: [
-            GroupDot(ex.region),
+            MuscleDot(ex.muscle),
             const SizedBox(width: 10),
             Expanded(
               child: Text(ex.name,
@@ -430,7 +430,7 @@ class _DashboardState extends State<Dashboard> {
           children: [
             Row(
               children: [
-                GroupDot(ex.region),
+                MuscleDot(ex.muscle),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(ex.name,

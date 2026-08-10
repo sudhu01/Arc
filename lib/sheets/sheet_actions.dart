@@ -14,6 +14,7 @@ import 'day_detail_sheet.dart';
 import 'log_sheet.dart';
 import 'add_exercise_sheet.dart';
 import 'companion_sheet.dart';
+import 'muscle_colors_sheet.dart';
 import 'muscle_review_sheet.dart';
 import 'muscle_sheet.dart';
 import 'share_workout_sheet.dart';
@@ -142,6 +143,16 @@ class Sheets {
       context: context,
       title: muscle.label,
       builder: (_) => MuscleSheet(muscle: muscle),
+    );
+  }
+
+  /// The thirteen group colours, repaintable one hue at a time.
+  static Future<void> openMuscleColors(BuildContext context) {
+    return showArcSheet(
+      context: context,
+      title: 'Group colors',
+      titleAction: (_) => const MuscleColorsResetAll(),
+      builder: (_) => const MuscleColorsSheet(),
     );
   }
 

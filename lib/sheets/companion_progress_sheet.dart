@@ -261,7 +261,7 @@ class _CompanionProgressSheetState extends State<CompanionProgressSheet> {
         padding: const EdgeInsets.symmetric(vertical: 11),
         child: Row(
           children: [
-            GroupDot(ex.region),
+            MuscleDot(ex.muscle),
             const SizedBox(width: 10),
             Expanded(
               child: Text(ex.name,
@@ -296,7 +296,7 @@ class _CompanionProgressSheetState extends State<CompanionProgressSheet> {
           children: [
             Row(
               children: [
-                GroupDot(ex.region),
+                MuscleDot(ex.muscle),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(ex.name,
@@ -472,7 +472,7 @@ class _PrCard extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                GroupDot(r.ex.region),
+                MuscleDot(r.ex.muscle),
                 if (isNew) const Tag('New'),
               ],
             ),
