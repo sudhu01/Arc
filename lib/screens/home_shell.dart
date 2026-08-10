@@ -28,11 +28,16 @@ class _HomeShellState extends State<HomeShell> {
     final safeBottom = MediaQuery.of(context).padding.bottom;
     final navHeight = 76 + safeBottom;
 
+    // `IndexedStack` keeps every tab mounted, and wraps the ones it isn't
+    // showing in `Visibility.maintain` — which keeps them laid out and their
+    // tickers running. That is free for four screens of widgets, but the
+    // Exercises tab hosts a WebGL renderer in a WebView, and a platform view
+    // has no idea it stopped being painted. Exercises is told which it is.
     final screens = [
       Dashboard(onNavTab: _setTab),
       const Records(),
       const CalendarScreen(),
-      const Library(),
+      Library(visible: _tab == 3),
     ];
 
     return Scaffold(

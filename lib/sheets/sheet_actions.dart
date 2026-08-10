@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../data/arc_data.dart';
 import '../data/companion_data.dart';
 import '../data/models.dart';
+import '../data/muscle.dart';
 import '../data/store.dart';
 import '../widgets/sheet.dart';
 import '../widgets/ui.dart';
@@ -13,6 +14,8 @@ import 'day_detail_sheet.dart';
 import 'log_sheet.dart';
 import 'add_exercise_sheet.dart';
 import 'companion_sheet.dart';
+import 'muscle_review_sheet.dart';
+import 'muscle_sheet.dart';
 import 'share_workout_sheet.dart';
 
 /// Central entry points for Arc's overlay sheets. Screens call these.
@@ -125,11 +128,29 @@ class Sheets {
     );
   }
 
-  static Future<void> openAddExercise(BuildContext context,
-      {String group = 'Push'}) {
+  static Future<void> openAddExercise(BuildContext context, {Muscle? muscle}) {
     return showArcSheet(
       context: context,
-      builder: (_) => AddExerciseSheet(initialGroup: group),
+      builder: (_) => AddExerciseSheet(initialMuscle: muscle),
+    );
+  }
+
+  /// Everything filed under one muscle group. Opened by tapping the body, or a
+  /// section header in the list.
+  static Future<void> openMuscle(BuildContext context, Muscle muscle) {
+    return showArcSheet(
+      context: context,
+      title: muscle.label,
+      builder: (_) => MuscleSheet(muscle: muscle),
+    );
+  }
+
+  /// Bulk re-sort for groups Arc guessed during the muscle-taxonomy upgrade.
+  static Future<void> openMuscleReview(BuildContext context) {
+    return showArcSheet(
+      context: context,
+      title: 'Check muscle groups',
+      builder: (_) => const MuscleReviewSheet(),
     );
   }
 

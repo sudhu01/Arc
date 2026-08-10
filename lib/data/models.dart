@@ -1,19 +1,61 @@
 // Domain models for Arc — ported from arc-data.js.
 
+import 'muscle.dart';
+
 class Exercise {
   final String id;
   final String name;
-  final String group; // Push | Pull | Legs | Core
+
+  /// The group this lift is filed under and counted against — the one the user
+  /// picks, and the only one that decides where it appears in the library.
+  final Muscle muscle;
+
+  /// Groups the lift also works, in descending contribution. These never move
+  /// an exercise in the library; they only feed the body's volume map, at a
+  /// discount — see [ArcData.muscleVolume].
+  final List<Muscle> secondary;
+
   final String unit; // 'kg' | 'bw'
+
+  /// False when [muscle] was guessed rather than chosen — either backfilled
+  /// from the old Push/Pull/Legs/Core taxonomy or inferred from a companion's
+  /// row. The Exercises screen offers to correct these; nothing else cares.
+  final bool muscleConfirmed;
 
   const Exercise({
     required this.id,
     required this.name,
-    required this.group,
+    required this.muscle,
+    this.secondary = const [],
     required this.unit,
+    this.muscleConfirmed = true,
   });
 
   bool get isBodyweight => unit == 'bw';
+
+  /// The coarse movement pattern — Push | Pull | Legs | Core. Everything that
+  /// predates the muscle taxonomy (session titles, calendar dots, the group
+  /// palette) reads this rather than [muscle].
+  String get region => muscle.region;
+
+  /// Whether this lift works [m] at all, primarily or otherwise.
+  bool trains(Muscle m) => muscle == m || secondary.contains(m);
+
+  Exercise copyWith({
+    String? name,
+    Muscle? muscle,
+    List<Muscle>? secondary,
+    String? unit,
+    bool? muscleConfirmed,
+  }) =>
+      Exercise(
+        id: id,
+        name: name ?? this.name,
+        muscle: muscle ?? this.muscle,
+        secondary: secondary ?? this.secondary,
+        unit: unit ?? this.unit,
+        muscleConfirmed: muscleConfirmed ?? this.muscleConfirmed,
+      );
 }
 
 /// One tier of a drop set: the lighter weight/reps pair run straight off the

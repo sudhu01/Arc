@@ -335,6 +335,20 @@ class AppColors {
   static const groupLegs = Color(0xFF45B164);
   static const groupCore = Color(0xFFC077D1);
 
+  // The figure on the Exercises screen.
+  //
+  // It renders into the page's own background rather than a framed panel, so
+  // the canvas ground is just [bg] — the body sits *in* the screen instead of
+  // in a box cut out of it.
+  static Color get bodyField => _p.bg;
+
+  /// The figure's colour in the light theme, where it is drawn as accumulated
+  /// ink on paper rather than as accumulated light. Tinted off the accent so
+  /// the two polarities are recognisably the same figure, and kept dark enough
+  /// that the densest passages still clear contrast against [bg].
+  static Color get bodyInk =>
+      Color.lerp(_p.ink, _p.accentStrong, 0.22) ?? _p.ink;
+
   static Color group(String g) {
     switch (g) {
       case 'Push':

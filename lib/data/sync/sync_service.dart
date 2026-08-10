@@ -225,7 +225,13 @@ class SyncService {
         'payload': {
           'id': ex['id'],
           'name': ex['name'],
+          // `group` is the coarse Push/Pull/Legs/Core region and stays first-
+          // class: it is the only muscle signal a peer on a pre-v6 build can
+          // read, and it is derived from `muscle` so the two never disagree.
           'group': ex['muscle_group'],
+          'muscle': ex['muscle'],
+          if ((ex['secondary'] as String?)?.isNotEmpty ?? false)
+            'secondary': ex['secondary'],
           'unit': ex['unit'],
         },
         'deleted': (ex['deleted'] as int) == 1,

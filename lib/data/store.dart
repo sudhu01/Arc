@@ -8,6 +8,7 @@ import 'db/app_database.dart';
 import 'identity/identity_service.dart';
 import 'identity/pairing.dart';
 import 'models.dart';
+import 'muscle.dart';
 import 'sync/sync_api.dart' show SyncException;
 import 'sync/sync_service.dart';
 
@@ -163,17 +164,68 @@ class ArcStore extends ChangeNotifier {
 
   Future<String> addExercise({
     required String name,
-    required String group,
+    required Muscle muscle,
+    List<Muscle> secondary = const [],
     required String unit,
   }) async {
     final id = ArcData.uid('ex');
-    final ex = Exercise(id: id, name: name, group: group, unit: unit);
+    final ex = Exercise(
+      id: id,
+      name: name,
+      muscle: muscle,
+      secondary: secondary,
+      unit: unit,
+    );
     await _db.upsertExercise(ex, _me);
     _exercises = [..._exercises, ex];
     _recompute();
     notifyListeners();
     unawaited(autoSync());
     return id;
+  }
+
+  /// Number of my exercises whose group Arc guessed rather than the user chose.
+  /// Drives the review card on the Exercises screen.
+  int get unconfirmedMuscleCount =>
+      _exercises.where((e) => !e.muscleConfirmed).length;
+
+  /// Reassign an exercise's muscle groups. Always marks the result confirmed —
+  /// the only way here is the user picking, whether from the review sheet or
+  /// from editing the exercise.
+  Future<void> setExerciseMuscles(
+    String exerciseId, {
+    required Muscle muscle,
+    List<Muscle>? secondary,
+  }) async {
+    final i = _exercises.indexWhere((e) => e.id == exerciseId);
+    if (i < 0) return;
+    final next = _exercises[i].copyWith(
+      muscle: muscle,
+      secondary: secondary,
+      muscleConfirmed: true,
+    );
+    await _db.upsertExercise(next, _me);
+    _exercises = [..._exercises]..[i] = next;
+    _recompute();
+    notifyListeners();
+    unawaited(autoSync());
+  }
+
+  /// Accepts every guessed group as-is. The escape hatch on the review sheet
+  /// for a library that Arc already got right.
+  Future<void> confirmAllMuscles() async {
+    final pending = _exercises.where((e) => !e.muscleConfirmed).toList();
+    if (pending.isEmpty) return;
+    final byId = {for (final e in pending) e.id: e.copyWith(muscleConfirmed: true)};
+    for (final e in byId.values) {
+      await _db.upsertExercise(e, _me);
+    }
+    _exercises = [
+      for (final e in _exercises) byId[e.id] ?? e,
+    ];
+    _recompute();
+    notifyListeners();
+    unawaited(autoSync());
   }
 
   void _fire(String msg, String icon) {

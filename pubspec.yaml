@@ -56,6 +56,12 @@ dependencies:
   path_provider: ^2.1.6
   image: ^4.9.1
 
+  # Hosts the muscle-group body renderer on the Exercises screen. Its assets are
+  # bundled and served from an in-process loopback HTTP server (see
+  # lib/body/body_server.dart) — nothing is fetched at runtime, so the body
+  # renders the same offline as on wifi.
+  webview_flutter: ^4.13.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -90,10 +96,13 @@ flutter:
       fonts:
         - asset: assets/fonts/SpaceGrotesk.ttf
 
-  # To add assets to your application, add an assets section, like this:
-  # assets:
-  #   - images/a_dot_burr.jpeg
-  #   - images/a_dot_ham.jpeg
+  # The body renderer: page, scene, baked mesh, and a bundled three.js (MIT).
+  # Each directory is listed separately — Flutter does not recurse into
+  # subfolders, so the postprocessing addons silently would not ship otherwise.
+  assets:
+    - assets/body/
+    - assets/body/addons/postprocessing/
+    - assets/body/addons/shaders/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

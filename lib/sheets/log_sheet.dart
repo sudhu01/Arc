@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show LengthLimitingTextInputFormatter;
 import 'package:provider/provider.dart';
 import '../data/arc_data.dart';
+import '../data/muscle.dart';
 import '../data/store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/arc_icons.dart';
@@ -478,7 +479,7 @@ class _LogSheetState extends State<LogSheet> {
         children: [
           Row(
             children: [
-              GroupDot(ex.group),
+              GroupDot(ex.region),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(ex.name,
@@ -815,9 +816,9 @@ class _LogSheetState extends State<LogSheet> {
     final filtered = store.exercises
         .where((e) => e.name.toLowerCase().contains(_query.toLowerCase()))
         .toList();
-    final byGroup = <String, List>{};
+    final byGroup = <Muscle, List>{};
     for (final e in filtered) {
-      (byGroup[e.group] ??= []).add(e);
+      (byGroup[e.muscle] ??= []).add(e);
     }
 
     return ListView(
@@ -840,14 +841,14 @@ class _LogSheetState extends State<LogSheet> {
           onTap: () => setState(() => _view = 'new'),
         ),
         const SizedBox(height: 14),
-        for (final g in ArcData.groups.where((g) => byGroup[g] != null)) ...[
+        for (final g in Muscle.values.where((g) => byGroup[g] != null)) ...[
           Padding(
             padding: const EdgeInsets.fromLTRB(2, 4, 2, 8),
             child: Row(
               children: [
-                GroupDot(g),
+                GroupDot(g.region),
                 const SizedBox(width: 7),
-                Text(g.toUpperCase(),
+                Text(g.label.toUpperCase(),
                     style: AppText.ui(
                         size: 12.5,
                         weight: FontWeight.w700,
@@ -915,9 +916,9 @@ class _LogSheetState extends State<LogSheet> {
         AddExerciseForm(
           submitLabel: 'Create & add',
           onCancel: () => setState(() => _view = 'pick'),
-          onCreate: (name, group, unit) async {
-            final id =
-                await store.addExercise(name: name, group: group, unit: unit);
+          onCreate: (name, muscle, secondary, unit) async {
+            final id = await store.addExercise(
+                name: name, muscle: muscle, secondary: secondary, unit: unit);
             if (mounted) _addEntry(id);
           },
         ),

@@ -1,12 +1,15 @@
 import 'dart:math' as math;
 import 'models.dart';
+import 'muscle.dart';
 
 /// Metrics + date helpers for Arc. (Exercise library and history are now
 /// entirely user-created and persisted in SQLite — no seed/placeholder data.)
 class ArcData {
   ArcData._();
 
-  static const List<String> groups = ['Push', 'Pull', 'Legs', 'Core'];
+  /// The coarse tier — movement patterns, not muscles. Still what session
+  /// titles, calendar dots and the group palette speak; see [Muscle.region].
+  static const List<String> groups = MuscleRegion.all;
 
   static const Map<String, String> dayTitle = {
     'Push': 'Push Day',
@@ -121,6 +124,72 @@ class ArcData {
     return byEx;
   }
 
+  /// How hard each muscle group has been worked lately, as a 0..1 ratio of the
+  /// hardest-worked group. This is what lights the body — a group at 1.0 glows,
+  /// one at 0 sits matte.
+  ///
+  /// Counted in sets, not in weight: across thirteen groups that span barbell
+  /// squats and cable curls, tonnage compares apples to nothing. A drop tier
+  /// rides along with its parent set rather than counting again, matching how
+  /// Arc counts sets everywhere else. Secondary groups accrue at
+  /// [secondaryWeight] — bench builds triceps, but not the way dips do.
+  ///
+  /// Returns every group, including the untrained ones at 0, so a caller can
+  /// paint the whole body without checking for absent keys.
+  static Map<Muscle, double> muscleVolume(
+    List<Session> sessions,
+    Exercise? Function(String) exById, {
+    int days = 14,
+    double secondaryWeight = 0.4,
+  }) {
+    final raw = {for (final m in Muscle.values) m: 0.0};
+    for (final s in sessions) {
+      final ago = daysAgo(s.date);
+      if (ago < 0 || ago >= days) continue;
+      for (final e in s.entries) {
+        final ex = exById(e.exerciseId);
+        if (ex == null) continue;
+        final sets = e.sets.length.toDouble();
+        if (sets == 0) continue;
+        raw[ex.muscle] = raw[ex.muscle]! + sets;
+        for (final m in ex.secondary) {
+          raw[m] = raw[m]! + sets * secondaryWeight;
+        }
+      }
+    }
+    final peak = raw.values.fold(0.0, math.max);
+    if (peak <= 0) return raw;
+    return {for (final e in raw.entries) e.key: e.value / peak};
+  }
+
+  /// Raw set counts for one group over the window the body map uses: [direct]
+  /// from lifts that name it as their primary, [assisted] from lifts that only
+  /// list it as secondary. Kept separate rather than blended because "18 sets"
+  /// is a claim, and 12 of them being bench press is worth saying out loud.
+  static ({int direct, int assisted}) muscleSets(
+    List<Session> sessions,
+    Exercise? Function(String) exById,
+    Muscle muscle, {
+    int days = 14,
+  }) {
+    var direct = 0;
+    var assisted = 0;
+    for (final s in sessions) {
+      final ago = daysAgo(s.date);
+      if (ago < 0 || ago >= days) continue;
+      for (final e in s.entries) {
+        final ex = exById(e.exerciseId);
+        if (ex == null) continue;
+        if (ex.muscle == muscle) {
+          direct += e.sets.length;
+        } else if (ex.secondary.contains(muscle)) {
+          assisted += e.sets.length;
+        }
+      }
+    }
+    return (direct: direct, assisted: assisted);
+  }
+
   static int daysAgo(String isoStr) {
     final d = parseISO(isoStr);
     return (today.difference(d).inHours / 24).round();
@@ -170,7 +239,7 @@ class ArcData {
       Iterable<String> exerciseIds, Exercise? Function(String) exById) {
     final count = <String, int>{};
     for (final id in exerciseIds) {
-      final g = exById(id)?.group;
+      final g = exById(id)?.region;
       if (g == null) continue;
       count[g] = (count[g] ?? 0) + 1;
     }

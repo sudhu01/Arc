@@ -14,6 +14,8 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
 import '../models.dart';
+import '../muscle.dart';
+import '../muscle_map.dart';
 
 class AppDatabase {
   AppDatabase._(this.db);
@@ -21,7 +23,7 @@ class AppDatabase {
   final Database db;
 
   static const _dbName = 'arc.db';
-  static const _version = 5;
+  static const _version = 6;
 
   /// Open the database. [factory] and [path] are injectable so tests can run
   /// against an in-memory sqflite_common_ffi database.
@@ -60,6 +62,48 @@ class AppDatabase {
     if (oldVersion < 5) {
       await db.execute('ALTER TABLE sessions ADD COLUMN name TEXT');
     }
+    // v6: per-muscle-group exercise taxonomy. `muscle_group` stays, still
+    // holding the coarse Push/Pull/Legs/Core region — that's what keeps a
+    // companion on an older build able to read our exercises.
+    if (oldVersion < 6) {
+      await db.execute('ALTER TABLE exercises ADD COLUMN muscle TEXT');
+      await db.execute(
+          "ALTER TABLE exercises ADD COLUMN secondary TEXT NOT NULL DEFAULT ''");
+      await db.execute('ALTER TABLE exercises '
+          'ADD COLUMN muscle_confirmed INTEGER NOT NULL DEFAULT 0');
+      await _backfillMuscles(db);
+    }
+  }
+
+  /// Reads every exercise's name through the dictionary and writes the muscle
+  /// group it implies. A name the dictionary doesn't know falls back to the
+  /// default group for its old region and is left `muscle_confirmed = 0`, which
+  /// is what the Exercises screen's review card counts.
+  static Future<void> _backfillMuscles(DatabaseExecutor db) async {
+    final rows = await db.query('exercises',
+        columns: ['id', 'name', 'muscle_group']);
+    final batch = db.batch();
+    for (final r in rows) {
+      final guess = MuscleMap.resolve(
+        (r['name'] as String?) ?? '',
+        region: r['muscle_group'] as String?,
+      );
+      batch.update(
+        'exercises',
+        {
+          'muscle': guess.primary.id,
+          'secondary': Muscle.encodeList(guess.secondary),
+          'muscle_confirmed': guess.confident ? 1 : 0,
+          // Re-derive the region so it agrees with the group we just chose —
+          // "Close-Grip Bench" was filed under Push and is now Triceps, which
+          // is still Push, but "Deadlift" under Legs is now Lower Back / Pull.
+          'muscle_group': guess.primary.region,
+        },
+        where: 'id = ?',
+        whereArgs: [r['id']],
+      );
+    }
+    await batch.commit(noResult: true);
   }
 
   /// Drop-set tiers. A child of `sets` rather than a flag on it, so a set is
@@ -119,7 +163,12 @@ class AppDatabase {
       CREATE TABLE exercises (
         id           TEXT PRIMARY KEY,
         name         TEXT NOT NULL,
+        -- Coarse region, derived from `muscle`. Kept as its own column because
+        -- it is what a companion on a pre-v6 build reads off the sync payload.
         muscle_group TEXT NOT NULL,             -- Push | Pull | Legs | Core
+        muscle       TEXT,                      -- primary group, e.g. 'chest'
+        secondary    TEXT NOT NULL DEFAULT '',  -- csv, e.g. 'triceps,shoulders'
+        muscle_confirmed INTEGER NOT NULL DEFAULT 0,
         unit         TEXT NOT NULL,             -- kg | bw
         owner_id     TEXT NOT NULL,
         updated_at   INTEGER NOT NULL,
@@ -321,7 +370,10 @@ class AppDatabase {
       {
         'id': ex.id,
         'name': ex.name,
-        'muscle_group': ex.group,
+        'muscle_group': ex.region,
+        'muscle': ex.muscle.id,
+        'secondary': Muscle.encodeList(ex.secondary),
+        'muscle_confirmed': ex.muscleConfirmed ? 1 : 0,
         'unit': ex.unit,
         'owner_id': ownerId,
         'updated_at': DateTime.now().millisecondsSinceEpoch,
@@ -346,12 +398,33 @@ class AppDatabase {
     );
   }
 
-  Exercise _exerciseFromRow(Map<String, Object?> r) => Exercise(
+  /// A row with no `muscle` is one a companion on a pre-v6 build wrote (our own
+  /// rows are all backfilled at upgrade). Read it the same way the migration
+  /// does — name first, coarse region as the fallback — and mark it unconfirmed.
+  Exercise _exerciseFromRow(Map<String, Object?> r) {
+    final name = r['name'] as String;
+    final stored = Muscle.fromId(r['muscle'] as String?);
+    if (stored == null) {
+      final guess =
+          MuscleMap.resolve(name, region: r['muscle_group'] as String?);
+      return Exercise(
         id: r['id'] as String,
-        name: r['name'] as String,
-        group: r['muscle_group'] as String,
+        name: name,
+        muscle: guess.primary,
+        secondary: guess.secondary,
         unit: r['unit'] as String,
+        muscleConfirmed: false,
       );
+    }
+    return Exercise(
+      id: r['id'] as String,
+      name: name,
+      muscle: stored,
+      secondary: Muscle.parseList(r['secondary'] as String?),
+      unit: r['unit'] as String,
+      muscleConfirmed: (r['muscle_confirmed'] as int? ?? 0) == 1,
+    );
+  }
 
   // ── Sessions (assembled with their entries + sets) ────────────────────
   Future<List<Session>> getSessions(String ownerId) async {
@@ -539,12 +612,27 @@ class AppDatabase {
   }) async {
     final id = p['id'] as String;
     if (await _isStale('exercises', id, updatedAt)) return;
+
+    // `muscle` is absent from anything a pre-v6 peer sends; fall back to the
+    // dictionary over the name, using their coarse `group` as the tiebreak.
+    final name = (p['name'] as String?) ?? '';
+    final sent = Muscle.fromId(p['muscle'] as String?);
+    final MuscleGuess resolved = sent != null
+        ? MuscleGuess(sent, secondary: Muscle.parseList(p['secondary'] as String?))
+        : MuscleMap.resolve(name, region: p['group'] as String?);
+    final muscle = resolved.primary;
+
     await db.insert(
       'exercises',
       {
         'id': id,
-        'name': p['name'] ?? '',
-        'muscle_group': p['group'] ?? '',
+        'name': name,
+        'muscle_group': muscle.region,
+        'muscle': muscle.id,
+        'secondary': Muscle.encodeList(resolved.secondary),
+        // A companion's library isn't ours to tidy — never surface their rows
+        // in our review card, whichever way we resolved the group.
+        'muscle_confirmed': 1,
         'unit': p['unit'] ?? 'kg',
         'owner_id': ownerId,
         'updated_at': updatedAt,

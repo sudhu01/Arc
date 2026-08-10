@@ -23,7 +23,7 @@ class _RecordsState extends State<Records> {
     final list = store.exercises
         .map((e) => store.records[e.id])
         .where((r) => r != null && r.best != null)
-        .where((r) => _filter == 'All' || r!.ex.group == _filter)
+        .where((r) => _filter == 'All' || r!.ex.region == _filter)
         .toList()
       ..sort((a, b) {
         final sa = a!.ex.isBodyweight ? 0.0 : a.best!.score;
@@ -77,7 +77,7 @@ class _RecordRow extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    GroupDot(ex.group),
+                    GroupDot(ex.region),
                     const SizedBox(width: 7),
                     Flexible(
                       child: Text(ex.name,
