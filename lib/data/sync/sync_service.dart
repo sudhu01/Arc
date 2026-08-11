@@ -7,11 +7,14 @@
 //
 // The device SQLite stays the source of truth; the server is a dumb relay.
 
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 
 import '../db/app_database.dart';
 import '../identity/identity_service.dart';
 import '../models.dart';
+import '../notify/companion_event.dart';
 import 'sync_api.dart';
 
 /// Public default: the relay is exposed over HTTPS through an ngrok tunnel
@@ -29,6 +32,19 @@ class SyncResult {
   final int pushed;
   final int pulled;
   const SyncResult({required this.pushed, required this.pulled});
+}
+
+/// Nothing older than this is worth trying to publish. A "started a workout"
+/// that has sat in the outbox all night is not late, it is false — the phone
+/// drops it rather than announcing a session that ended hours ago. Generous
+/// enough to cover a long session in a signal-dead basement.
+const Duration kOutboxTtl = Duration(hours: 6);
+
+/// One page of companions' moments, and where the feed stood when it was read.
+class EventBatch {
+  final List<CompanionEvent> events;
+  final int cursor;
+  const EventBatch({required this.events, required this.cursor});
 }
 
 class SyncService {
@@ -73,10 +89,97 @@ class SyncService {
     return _authed(api, (token) async {
       final pushed = await _push(api, token);
       final pulled = await _pull(api, token);
+      await _publishEvents(api, token);
       await _pushPendingRequests(api, token);
       await _refreshCompanions(api, token);
       return SyncResult(pushed: pushed, pulled: pulled);
     });
+  }
+
+  /// Drain the event outbox to the relay.
+  ///
+  /// Deliberately isolated from the rest of [syncNow]: a workout beacon that
+  /// cannot be published must never take the workout data down with it, and a
+  /// failed publish leaves the rows in place for the next sync — the server
+  /// dedupes on the event id, so a retry costs nothing.
+  Future<void> _publishEvents(SyncApi api, String token) async {
+    await _db.pruneOutboxEvents(
+        DateTime.now().subtract(kOutboxTtl).millisecondsSinceEpoch);
+    final rows = await _db.getOutboxEvents();
+    if (rows.isEmpty) return;
+
+    final wire = <Map<String, dynamic>>[];
+    final ids = <String>[];
+    for (final r in rows) {
+      final id = r['id'] as String;
+      ids.add(id);
+      wire.add({
+        'id': id,
+        'kind': r['kind'],
+        'payload': _decodePayload(r['payload'] as String?),
+        'created_at': r['created_at'],
+      });
+    }
+    await api.publishEvents(token, wire);
+    await _db.clearOutboxEvents(ids);
+  }
+
+  static Map<String, dynamic> _decodePayload(String? raw) {
+    if (raw == null || raw.isEmpty) return const {};
+    try {
+      final v = jsonDecode(raw);
+      return v is Map<String, dynamic> ? v : const {};
+    } catch (_) {
+      return const {};
+    }
+  }
+
+  /// Fetch companions' moments past the stored cursor.
+  ///
+  /// Run on its own rather than inside [syncNow] because it is the *only* thing
+  /// the background worker needs: pulling a week of session subtrees to find out
+  /// that someone benched 100 kg would waste a doze-window wakeup.
+  ///
+  /// The cursor is deliberately *not* advanced here — [commitEventCursor] is,
+  /// once the caller has actually taken responsibility for the batch. Advancing
+  /// on receipt would mean a crash between the pull and the notification lost
+  /// those moments for good; advancing after means the worst case is re-pulling
+  /// events the ledger then recognises and drops.
+  Future<EventBatch> pullEvents() async {
+    final api = await _resolveApi();
+    return _authed(api, (token) async {
+      final cursor = (await _db.getSelfSyncState()).eventCursor;
+      final out = <CompanionEvent>[];
+      // One page is plenty: the relay caps a response at 500 and the feed is
+      // swept weekly, so a device that has been away simply resumes from the
+      // newest cursor it is handed.
+      final resp = await api.pullEvents(token, cursor);
+      for (final raw in (resp['events'] as List?) ?? const []) {
+        try {
+          final e = CompanionEvent.fromWire((raw as Map).cast<String, dynamic>());
+          if (e != null) out.add(e);
+        } catch (err) {
+          debugPrint('Arc events: skipped an event: $err');
+        }
+      }
+      return EventBatch(
+        events: out,
+        cursor: (resp['cursor'] as num?)?.toInt() ?? cursor,
+      );
+    });
+  }
+
+  /// Mark a pulled batch as dealt with.
+  Future<void> commitEventCursor(int cursor) async {
+    if (cursor <= (await _db.getSelfSyncState()).eventCursor) return;
+    await _db.setEventCursor(cursor);
+  }
+
+  /// Hand the relay a push token so it can wake this device rather than wait
+  /// for it to poll. Best-effort: push is an accelerator, never the delivery.
+  Future<void> registerPushToken(String deviceToken) async {
+    final api = await _resolveApi();
+    await _authed(api, (t) => api.registerDevice(t, deviceToken));
   }
 
   /// Re-send any still-outstanding outbound pairing requests. Scanning a QR

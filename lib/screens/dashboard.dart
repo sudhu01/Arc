@@ -223,7 +223,7 @@ class _DashboardState extends State<Dashboard> {
             itemBuilder: (context, i) {
               final r = prShown[i]!;
               final isBw = r.ex.isBodyweight;
-              final isNew = ArcData.daysAgo(r.best!.date) <= 16;
+              final isNew = ArcData.isNewRecord(r.best!.date);
               String fmtW(double w) =>
                   w % 1 == 0 ? w.toInt().toString() : w.toString();
               return PressScale(

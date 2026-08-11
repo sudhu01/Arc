@@ -9,6 +9,9 @@ import 'identity/identity_service.dart';
 import 'identity/pairing.dart';
 import 'models.dart';
 import 'muscle.dart';
+import 'notify/arc_notifier.dart';
+import 'notify/companion_alerts.dart';
+import 'notify/companion_event.dart';
 import 'sync/sync_api.dart' show SyncException;
 import 'sync/sync_service.dart';
 
@@ -62,13 +65,26 @@ class ArcStore extends ChangeNotifier {
     required AppDatabase db,
     required IdentityService identity,
     required SyncService sync,
+    ArcNotifier? notifier,
   })  : _db = db,
         _identity = identity,
-        _sync = sync;
+        _sync = sync,
+        _notifier = notifier;
 
   final AppDatabase _db;
   final IdentityService _identity;
   final SyncService _sync;
+
+  /// Presents companion moments in the OS shade. Null in tests and on any
+  /// platform without notifications — every call site below tolerates that, so
+  /// the feature degrades to "the events still publish" rather than throwing.
+  final ArcNotifier? _notifier;
+
+  /// Settings key holding the date this device last told companions a workout
+  /// had begun. One announcement per day: the beacon fires when the sheet goes
+  /// from empty to holding a lift, and re-opening it to add a fifth exercise is
+  /// not a second workout.
+  static const _kBeaconDateKey = 'companion_beacon_date';
 
   late List<Exercise> _exercises;
   late List<Session> _sessions;
@@ -276,15 +292,16 @@ class ArcStore extends ChangeNotifier {
     }
 
     final after = ArcData.computeRecords(next, _exercises);
-    String? prName;
+    // Every lift that beat its own best, not just the first — the toast names
+    // one, but a companion is owed a line per record. A lift with no previous
+    // best is a first entry, not a broken record, and stays silent in both.
+    final broken = <(Exercise, RecordPoint)>[];
     for (final ex in _exercises) {
       final b = before[ex.id]?.best;
       final a = after[ex.id]?.best;
-      if (a != null && b != null && a.score > b.score) {
-        prName = ex.name;
-        break;
-      }
+      if (a != null && b != null && a.score > b.score) broken.add((ex, a));
     }
+    final prName = broken.isEmpty ? null : broken.first.$1.name;
 
     // Write through to SQLite.
     if (saved != null) {
@@ -305,7 +322,131 @@ class ArcStore extends ChangeNotifier {
       _fire('Workout saved', 'check');
     }
 
+    // Only records that were actually just set. Correcting a session from three
+    // weeks ago can legitimately produce a new best, but announcing it as
+    // "has a new PR record" would be reporting bookkeeping as news — the same
+    // reason the start beacon refuses a back-dated date. Yesterday is allowed:
+    // logging last night's session over breakfast is normal, and that PR is
+    // real and current.
+    if (_announcesRecords(date)) {
+      for (final (ex, best) in broken) {
+        await _enqueueEvent(CompanionEvent.mine(
+          EventKind.personalRecord,
+          CompanionEvent.prPayload(
+            exercise: ex.name,
+            weight: best.weight,
+            reps: best.reps,
+            unit: ex.unit,
+          ),
+        ));
+      }
+    }
+
     unawaited(autoSync()); // push this change to the relay in the background
+  }
+
+  // ── Companion moments ───────────────────────────────────────────────
+
+  /// Whether a record set on this session's [date] is still news.
+  ///
+  /// Also requires somebody to tell: a device with no accepted companions
+  /// publishes nothing at all.
+  bool _announcesRecords(String date) {
+    if (!_companions.any((c) => c.status == CompanionStatus.accepted)) {
+      return false;
+    }
+    final ago = ArcData.daysAgo(date);
+    return ago >= 0 && ago <= 1;
+  }
+
+  /// Tell companions a workout has just begun.
+  ///
+  /// Called the moment the log sheet goes from empty to holding its first lift,
+  /// which is the only moment at which "Today is Push Day" is a statement of
+  /// fact rather than a forecast — [name] is what the workout is called *now*,
+  /// the user's own if they typed one and the inferred title otherwise.
+  ///
+  /// Silent for a back-dated entry (filling in Tuesday on Thursday is not
+  /// starting a workout) and for a device with nobody to tell.
+  Future<void> announceWorkoutStart({
+    required String date,
+    required String name,
+  }) async {
+    if (date != ArcData.iso(ArcData.today)) return;
+    if (!_companions.any((c) => c.status == CompanionStatus.accepted)) return;
+    if (await _db.getSetting(_kBeaconDateKey) == date) return;
+    await _db.setSetting(_kBeaconDateKey, date);
+    await _enqueueEvent(CompanionEvent.mine(
+      EventKind.workoutStarted,
+      CompanionEvent.workoutStartedPayload(name: name, date: date),
+    ));
+    unawaited(autoSync()); // get it out now; it is only news for a few hours
+  }
+
+  /// Queue a moment for the relay. Writing to disk before the network is what
+  /// makes a beacon fired on a basement gym's dead signal still arrive.
+  Future<void> _enqueueEvent(CompanionEvent e) => _db.enqueueEvent(
+        id: e.id,
+        kind: e.kind.wire,
+        payloadJson: e.payloadJson,
+        createdAt: e.createdAt,
+      );
+
+  /// Pull companions' moments and raise any that are new. Cheap and safe to
+  /// call often — it never throws, and posts nothing without an unseen event.
+  Future<int> deliverCompanionAlerts() async {
+    final notifier = _notifier;
+    if (notifier == null) return 0;
+    return CompanionAlerts(db: _db, sync: _sync, notifier: notifier)
+        .deliverPending();
+  }
+
+  /// Ask for notification permission at the one moment it explains itself:
+  /// just after pairing, when the user has a companion to hear about. A cold
+  /// prompt on first launch is the one people deny permanently.
+  Future<void> _requestAlertPermission() async {
+    final notifier = _notifier;
+    if (notifier == null) return;
+    try {
+      if (await notifier.enabled) return;
+      await notifier.requestPermission();
+    } catch (e) {
+      debugPrint('Arc notify: permission request failed: $e');
+    }
+  }
+
+  /// The same ask, for everyone who was already paired before this build
+  /// existed — made when they open the Companions sheet.
+  ///
+  /// Pairing is the natural prompt, but an upgrading install passed through
+  /// that moment months ago, so without this the feature would ship
+  /// permanently silent to exactly the users who have companions to hear
+  /// about. Opening Companions is the next-best moment: they are looking at
+  /// the people the alerts are about, which is the context a bare system
+  /// dialog cannot supply for itself.
+  ///
+  /// Deliberately *not* asked from `main()`. A prompt at cold launch is the one
+  /// people dismiss reflexively, and it would arrive before there is anything
+  /// on screen to explain it.
+  ///
+  /// No ask-once flag: Android already stops showing the dialog after two
+  /// dismissals, and a flag of our own would turn one reflexive tap into a
+  /// permanent, unexplained silence. Re-opening Companions is therefore the way
+  /// back for anyone who dismissed it once.
+  Future<void> ensureAlertPermission() async {
+    if (_notifier == null) return;
+    if (!_companions.any((c) => c.status == CompanionStatus.accepted)) return;
+    await _requestAlertPermission();
+  }
+
+  /// Hand the relay an address to nudge, if this build has a push transport.
+  /// Best-effort — polling delivers everything regardless.
+  Future<void> registerPushToken(String deviceToken) async {
+    try {
+      await _sync.registerPushToken(deviceToken);
+    } catch (e) {
+      debugPrint('Arc push: token registration failed: $e');
+    }
   }
 
   /// Delete the workout logged on [date] (tombstoned for sync).
@@ -431,6 +572,9 @@ class ArcStore extends ChangeNotifier {
     } else {
       _fire('Request sent to ${payload.displayName}', 'check');
     }
+    // Now the prompt has an answer to "notifications about what?" — they just
+    // added someone whose workouts and records they'll want to hear about.
+    unawaited(_requestAlertPermission());
     return true;
   }
 
@@ -445,6 +589,7 @@ class ArcStore extends ChangeNotifier {
     _companions = await _db.getCompanions();
     notifyListeners();
     _fire('Companion accepted', 'check');
+    unawaited(_requestAlertPermission());
   }
 
   /// Block a companion (severs sync both ways).
@@ -543,6 +688,9 @@ class ArcStore extends ChangeNotifier {
       _companions = await _db.getCompanions();
       _lastSyncedAt = DateTime.now().millisecondsSinceEpoch;
       notifyListeners();
+      // The relay was reachable a moment ago, so this is the cheapest chance
+      // all day to find out what companions have been up to.
+      unawaited(deliverCompanionAlerts());
       if (announceSuccess) {
         _fire('Synced · ↑${result.pushed} ↓${result.pulled}', 'check');
       }

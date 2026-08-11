@@ -2,12 +2,15 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 )
 
 // testClient simulates an Arc device: holds an Ed25519 keypair and drives the
@@ -21,16 +24,42 @@ type testClient struct {
 	token string
 }
 
+// recordingPusher stands in for FCM: it captures who would have been woken so a
+// test can assert fan-out without a Firebase project.
+type recordingPusher struct {
+	mu    sync.Mutex
+	woken [][]string
+}
+
+func (p *recordingPusher) Wake(users []string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.woken = append(p.woken, append([]string(nil), users...))
+}
+
+func (p *recordingPusher) calls() [][]string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([][]string(nil), p.woken...)
+}
+
 func newTestBase(t *testing.T) string {
+	t.Helper()
+	base, _ := newTestBaseWithPusher(t)
+	return base
+}
+
+func newTestBaseWithPusher(t *testing.T) (string, *recordingPusher) {
 	t.Helper()
 	store, err := OpenStore(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	ts := httptest.NewServer((&Server{store: store}).routes())
+	push := &recordingPusher{}
+	ts := httptest.NewServer((&Server{store: store, push: push}).routes())
 	t.Cleanup(ts.Close)
-	return ts.URL
+	return ts.URL, push
 }
 
 func newClient(t *testing.T, base, name string) *testClient {
@@ -396,6 +425,339 @@ func TestCompanionRequestRejectsBlocked(t *testing.T) {
 	edges := list["companions"].([]any)
 	if len(edges) != 1 || edges[0].(map[string]any)["status"] != "blocked" {
 		t.Fatalf("edge should still be blocked, got %v", edges)
+	}
+}
+
+// ── Event feed ────────────────────────────────────────────────────────
+
+// pair walks the mutual-accept handshake so an event test can start from a
+// working companionship in one line.
+func pair(t *testing.T, a, b *testClient) {
+	t.Helper()
+	if code, _ := a.do("POST", "/v1/companions/request", map[string]any{"peer_id": b.id}); code != http.StatusOK {
+		t.Fatalf("request: got %d", code)
+	}
+	if code, _ := b.do("POST", "/v1/companions/accept", map[string]any{"peer_id": a.id}); code != http.StatusOK {
+		t.Fatalf("accept: got %d", code)
+	}
+}
+
+func (c *testClient) publish(events ...map[string]any) (int, map[string]any) {
+	c.t.Helper()
+	return c.do("POST", "/v1/events", map[string]any{"events": events})
+}
+
+func TestEventFeedIsGatedByCompanionship(t *testing.T) {
+	base := newTestBase(t)
+	alice := newClient(t, base, "Alice")
+	bob := newClient(t, base, "Bob")
+
+	if code, _ := alice.publish(map[string]any{
+		"id":         "ev-1",
+		"kind":       "workout_started",
+		"payload":    map[string]any{"name": "Push Day", "date": "2026-08-11"},
+		"created_at": 1000,
+	}); code != http.StatusOK {
+		t.Fatalf("publish: got %d", code)
+	}
+
+	// A stranger sees nothing, however recent the moment.
+	_, pull := bob.do("GET", "/v1/events?cursor=0", nil)
+	if n := len(pull["events"].([]any)); n != 0 {
+		t.Fatalf("expected 0 events before pairing, got %d", n)
+	}
+
+	pair(t, alice, bob)
+
+	_, pull = bob.do("GET", "/v1/events?cursor=0", nil)
+	events := pull["events"].([]any)
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event after pairing, got %d", len(events))
+	}
+	ev := events[0].(map[string]any)
+	if ev["owner_id"] != alice.id || ev["kind"] != "workout_started" {
+		t.Fatalf("unexpected event: %v", ev)
+	}
+	// The actor's name rides along, so a device that hasn't synced its
+	// companion list yet can still write "Alice has started a workout!".
+	if ev["owner_name"] != "Alice" {
+		t.Fatalf("expected owner_name Alice, got %v", ev["owner_name"])
+	}
+	if payload := ev["payload"].(map[string]any); payload["name"] != "Push Day" {
+		t.Fatalf("payload not relayed verbatim: %v", payload)
+	}
+
+	// The cursor advances and the same moment is never handed out twice.
+	cursor := pull["cursor"].(float64)
+	_, pull2 := bob.do("GET", "/v1/events?cursor="+itoa(int64(cursor)), nil)
+	if n := len(pull2["events"].([]any)); n != 0 {
+		t.Fatalf("expected 0 new events at latest cursor, got %d", n)
+	}
+}
+
+func TestEventPublishIsIdempotent(t *testing.T) {
+	base := newTestBase(t)
+	alice := newClient(t, base, "Alice")
+	bob := newClient(t, base, "Bob")
+	pair(t, alice, bob)
+
+	ev := map[string]any{
+		"id":         "ev-pr-1",
+		"kind":       "pr",
+		"payload":    map[string]any{"exercise": "Bench Press", "weight": 100, "reps": 5, "unit": "kg"},
+		"created_at": 2000,
+	}
+	// The outbox retries an unconfirmed publish; two attempts must still be one
+	// notification on Bob's phone.
+	if code, _ := alice.publish(ev); code != http.StatusOK {
+		t.Fatalf("first publish: got %d", code)
+	}
+	if code, _ := alice.publish(ev); code != http.StatusOK {
+		t.Fatalf("retried publish: got %d", code)
+	}
+
+	_, pull := bob.do("GET", "/v1/events?cursor=0", nil)
+	if n := len(pull["events"].([]any)); n != 1 {
+		t.Fatalf("expected 1 event after a retried publish, got %d", n)
+	}
+}
+
+func TestEventPublishRejectsUnknownKind(t *testing.T) {
+	base := newTestBase(t)
+	alice := newClient(t, base, "Alice")
+
+	code, _ := alice.publish(map[string]any{
+		"id": "ev-x", "kind": "nudge", "payload": map[string]any{}, "created_at": 1,
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for an unknown kind, got %d", code)
+	}
+}
+
+func TestEventsRequireAuth(t *testing.T) {
+	base := newTestBase(t)
+	c := newClient(t, base, "Alice")
+	c.token = ""
+	if code, _ := c.do("GET", "/v1/events?cursor=0", nil); code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without token, got %d", code)
+	}
+	if code, _ := c.do("POST", "/v1/devices", map[string]any{
+		"token": "tok", "platform": "android",
+	}); code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without token, got %d", code)
+	}
+}
+
+func TestPublishWakesAcceptedCompanionsOnly(t *testing.T) {
+	base, push := newTestBaseWithPusher(t)
+	alice := newClient(t, base, "Alice")
+	bob := newClient(t, base, "Bob")
+	carol := newClient(t, base, "Carol")
+	pair(t, alice, bob) // Carol stays a stranger
+
+	if code, _ := alice.publish(map[string]any{
+		"id": "ev-1", "kind": "workout_started",
+		"payload": map[string]any{"name": "Leg Day"}, "created_at": 1000,
+	}); code != http.StatusOK {
+		t.Fatalf("publish: got %d", code)
+	}
+
+	calls := push.calls()
+	if len(calls) != 1 {
+		t.Fatalf("expected exactly one wake, got %d", len(calls))
+	}
+	if len(calls[0]) != 1 || calls[0][0] != bob.id {
+		t.Fatalf("expected to wake only Bob, got %v", calls[0])
+	}
+	for _, id := range calls[0] {
+		if id == carol.id {
+			t.Fatal("woke a stranger")
+		}
+	}
+
+	// A duplicate publish assigns no new seq, so nobody's phone lights up twice.
+	if code, _ := alice.publish(map[string]any{
+		"id": "ev-1", "kind": "workout_started",
+		"payload": map[string]any{"name": "Leg Day"}, "created_at": 1000,
+	}); code != http.StatusOK {
+		t.Fatalf("republish: got %d", code)
+	}
+	if calls := push.calls(); len(calls) != 1 {
+		t.Fatalf("a duplicate publish should wake nobody, got %d wakes", len(calls))
+	}
+}
+
+func TestDeviceRegistryRoundTrip(t *testing.T) {
+	base := newTestBase(t)
+	alice := newClient(t, base, "Alice")
+
+	if code, _ := alice.do("POST", "/v1/devices", map[string]any{
+		"token": "fcm-token-1", "platform": "android",
+	}); code != http.StatusOK {
+		t.Fatalf("register device: got %d", code)
+	}
+	if code, _ := alice.do("POST", "/v1/devices", map[string]any{
+		"token": "fcm-token-1", "platform": "web",
+	}); code != http.StatusOK {
+		t.Fatalf("re-register device: got %d", code)
+	}
+	if code, _ := alice.do("POST", "/v1/devices", map[string]any{
+		"token": "fcm-token-1", "platform": "palm",
+	}); code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for an unknown platform, got %d", code)
+	}
+	if code, _ := alice.do("DELETE", "/v1/devices/fcm-token-1", nil); code != http.StatusOK {
+		t.Fatalf("delete device: got %d", code)
+	}
+}
+
+// The sequence must never go backwards. It is derived from a counter rather
+// than from MAX(server_seq) precisely because the janitor deletes rows: a quiet
+// week that emptied the feed would otherwise restart at 1, and every companion
+// whose cursor sat above that would stop receiving events forever, silently.
+func TestEventSeqSurvivesRetentionSweep(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	ctx := context.Background()
+
+	old := time.Now().Add(-30 * 24 * time.Hour).UnixMilli()
+	first, err := store.PublishEvents(ctx, "alice", []EventIn{
+		{ID: "ev-1", Kind: "pr", Payload: "{}", CreatedAt: old},
+	})
+	if err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	// The janitor comes through and the table is empty again.
+	store.PurgeOldEvents(ctx)
+	var n int
+	if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM events`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("expected the sweep to empty the feed, %d rows left", n)
+	}
+
+	next, err := store.PublishEvents(ctx, "alice", []EventIn{
+		{ID: "ev-2", Kind: "pr", Payload: "{}", CreatedAt: time.Now().UnixMilli()},
+	})
+	if err != nil {
+		t.Fatalf("publish after sweep: %v", err)
+	}
+	if next <= first {
+		t.Fatalf("sequence went backwards after a sweep: %d then %d", first, next)
+	}
+
+	// And a companion sitting at the pre-sweep cursor still sees what follows.
+	events, _, err := store.PullEvents(ctx, []string{"alice"}, first, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].ID != "ev-2" {
+		t.Fatalf("expected ev-2 past cursor %d, got %v", first, events)
+	}
+}
+
+// A relay upgrading from a build that derived the sequence from MAX(server_seq)
+// must adopt where that feed already got to, not hand out ids it has used.
+func TestEventSeqAdoptsAnExistingFeed(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	store, err := OpenStore(path)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	ctx := context.Background()
+	// Stand in for the old scheme: rows at a high seq, and no counter.
+	if _, err := store.db.ExecContext(ctx, `
+		INSERT INTO events (id, owner_id, kind, payload, server_seq, created_at)
+		VALUES ('legacy', 'alice', 'pr', '{}', 500, ?)`, time.Now().UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx, `DELETE FROM meta WHERE key = 'events_seq'`); err != nil {
+		t.Fatal(err)
+	}
+	_ = store.Close()
+
+	reopened, err := OpenStore(path)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+
+	seq, err := reopened.PublishEvents(ctx, "alice", []EventIn{
+		{ID: "ev-new", Kind: "pr", Payload: "{}", CreatedAt: time.Now().UnixMilli()},
+	})
+	if err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+	if seq <= 500 {
+		t.Fatalf("expected a seq above the existing feed's 500, got %d", seq)
+	}
+}
+
+func TestDeviceDeleteIsScopedToItsOwner(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	ctx := context.Background()
+
+	if err := store.RegisterDevice(ctx, "alice", "alice-token", "android"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Naming someone else's token must not silence their phone.
+	if err := store.DeleteDevice(ctx, "mallory", "alice-token"); err != nil {
+		t.Fatal(err)
+	}
+	tokens, err := store.DeviceTokens(ctx, []string{"alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tokens) != 1 {
+		t.Fatalf("a stranger deleted Alice's push address: %v", tokens)
+	}
+
+	// Alice can still release her own.
+	if err := store.DeleteDevice(ctx, "alice", "alice-token"); err != nil {
+		t.Fatal(err)
+	}
+	tokens, _ = store.DeviceTokens(ctx, []string{"alice"})
+	if len(tokens) != 0 {
+		t.Fatalf("expected the owner's delete to land, got %v", tokens)
+	}
+}
+
+// A relay with no FCM credentials must serve every endpoint normally — polling
+// is the supported default, not a degraded mode.
+func TestUnconfiguredPusherIsHarmless(t *testing.T) {
+	t.Setenv("ARC_FCM_CREDENTIALS", "")
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "")
+	store, err := OpenStore(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	ts := httptest.NewServer((&Server{store: store, push: NewPusher(store)}).routes())
+	t.Cleanup(ts.Close)
+
+	alice := newClient(t, ts.URL, "Alice")
+	bob := newClient(t, ts.URL, "Bob")
+	pair(t, alice, bob)
+	if code, _ := alice.publish(map[string]any{
+		"id": "ev-1", "kind": "pr",
+		"payload":    map[string]any{"exercise": "Squat", "weight": 140, "reps": 3, "unit": "kg"},
+		"created_at": 1000,
+	}); code != http.StatusOK {
+		t.Fatalf("publish: got %d", code)
+	}
+	_, pull := bob.do("GET", "/v1/events?cursor=0", nil)
+	if n := len(pull["events"].([]any)); n != 1 {
+		t.Fatalf("expected the event to be deliverable by polling, got %d", n)
 	}
 }
 

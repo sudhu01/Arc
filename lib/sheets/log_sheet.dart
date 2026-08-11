@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show LengthLimitingTextInputFormatter;
 import 'package:provider/provider.dart';
@@ -74,6 +76,9 @@ class _LogSheetState extends State<LogSheet> {
           sets: [_makeSet(widget.prefillExId!)],
         )
       ];
+      // Straight into the first lift from a record row — same beginning as
+      // adding one by hand, so it announces the same way.
+      _maybeAnnounceStart();
     }
   }
 
@@ -106,6 +111,27 @@ class _LogSheetState extends State<LogSheet> {
       _query = '';
       _searchController.clear();
     });
+    _maybeAnnounceStart();
+  }
+
+  /// The moment an empty sheet gains its first lift is the moment the workout
+  /// actually starts — everything before it is intent, and everything after is
+  /// the same workout continuing. That single transition is what companions
+  /// hear about, and it carries the name the workout has *right now*: what the
+  /// user typed, or the title Arc infers from the lift they just picked.
+  ///
+  /// Fire-and-forget by design. Nothing about announcing a workout to other
+  /// people may make logging it wait, and [ArcStore.announceWorkoutStart] holds
+  /// the guards that keep it to once a day and to today only.
+  void _maybeAnnounceStart() {
+    if (_entries.length != 1) return;
+    final typed = _nameController.text.trim();
+    unawaited(store.announceWorkoutStart(
+      date: _draftDate,
+      name: typed.isNotEmpty
+          ? typed
+          : ArcData.inferTitle(_entries.map((e) => e.exerciseId), store.exById),
+    ));
   }
 
   int get _totalSets => _entries.fold(0, (a, e) => a + e.sets.length);

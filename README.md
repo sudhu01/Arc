@@ -35,6 +35,11 @@ and run the *Go* server (refer to instructions in the server README) on your mac
   color and can each be repointed to any hue from the Exercises screen. The
   four coarse region colors are summarized from them, so the calendar and
   session dots follow along.
+- **Companion notifications** — Android alerts when a companion starts a
+  workout (*"Alice has started a workout! Today is Push Day"*) or breaks a
+  record (*"Alice has a new PR record of 100 kg × 5 for Bench Press"*). Delivered by
+  a background poll against the relay, or instantly with FCM configured. See
+  [`docs/push-notifications.md`](docs/push-notifications.md).
 - **Sync** — an identity keypair backed by a recovery phrase, with changes
   pushed/pulled to a companion-sync server so paired devices stay in sync.
 
@@ -61,7 +66,13 @@ lib/
       pairing.dart               QR / link pairing flow
     sync/
       sync_api.dart              HTTP client for the sync server
-      sync_service.dart          Push/pull changes, cursor management
+      sync_service.dart          Push/pull changes + events, cursor management
+    notify/
+      companion_event.dart       The two moments, their freshness windows, their copy
+      arc_notifier.dart          Android channels, the status-bar mark, the accent
+      companion_alerts.dart      Pull → freshness → claim → post (both isolates)
+      background_worker.dart     WorkManager delivery while Arc is closed
+      push_transport.dart        Seam for an optional FCM wake signal
   widgets/
     arc_icons.dart              Icon-name → Material rounded glyph mapping
     ui.dart                     Card, StatTile, Segmented, ArcStepper, ArcButton, Tag…

@@ -36,7 +36,7 @@ class PRDetailSheet extends StatelessWidget {
     final maxWeight = hist.isEmpty
         ? 0.0
         : hist.map((h) => h.weight).reduce((a, b) => a > b ? a : b);
-    final totalReps = hist.fold<int>(0, (a, h) => a + h.reps);
+    final totalSets = hist.fold<int>(0, (a, h) => a + h.sets);
     // Gain mirrors the chart below: reps for bodyweight, max weight otherwise.
     final num gain = hist.length > 1
         ? (isBw
@@ -50,23 +50,13 @@ class PRDetailSheet extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
-        // group + tag row
-        Row(
-          children: [
-            MuscleDot(ex.muscle),
-            const SizedBox(width: 8),
-            // The dot carries the coarse region; spell out the muscle, which is
-            // the more specific thing and the only one worth the words.
-            Text(ex.muscle.label,
-                style: AppText.ui(
-                    size: 13.5, weight: FontWeight.w600, color: AppColors.muted)),
-          ],
-        ),
-        const SizedBox(height: 16),
+        // The sheet's own title row supplies the gap above a first element;
+        // this tops it up to the 16 everything below the hero is spaced on.
+        const SizedBox(height: 6),
 
         // hero number
         Container(
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
           decoration: BoxDecoration(
             color: AppColors.accentSoft,
             borderRadius: AppRadii.rLg,
@@ -99,12 +89,6 @@ class PRDetailSheet extends StatelessWidget {
                           weight: FontWeight.w700,
                           color: AppColors.accentStrong)),
                 ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                '${isBw ? '${best.reps} reps' : '${fmtW(best.weight)} kg × ${best.reps}'} · ${ArcData.fmtDate(best.date, 'long')}',
-                style: AppText.ui(
-                    size: 14, weight: FontWeight.w500, color: AppColors.muted),
               ),
             ],
           ),
@@ -164,7 +148,7 @@ class PRDetailSheet extends StatelessWidget {
             ],
             StatTile(label: 'Sessions', value: '${hist.length}'),
             const SizedBox(width: 10),
-            StatTile(label: 'Total reps', value: '$totalReps'),
+            StatTile(label: 'Total sets', value: '$totalSets'),
           ],
         ),
         const SizedBox(height: 16),

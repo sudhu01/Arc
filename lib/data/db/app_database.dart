@@ -23,23 +23,47 @@ class AppDatabase {
   final Database db;
 
   static const _dbName = 'arc.db';
-  static const _version = 6;
+  static const _version = 7;
 
   /// Open the database. [factory] and [path] are injectable so tests can run
   /// against an in-memory sqflite_common_ffi database.
-  static Future<AppDatabase> open({DatabaseFactory? factory, String? path}) async {
+  ///
+  /// [singleInstance] must be false for the background delivery isolate. sqflite
+  /// keys its open databases by path across the whole process, so a worker
+  /// sharing the default instance would be handed the *app's* native handle —
+  /// and closing it when the pass finished would close the running app's
+  /// database out from under it. Its own connection costs one file handle and
+  /// removes that entirely.
+  static Future<AppDatabase> open({
+    DatabaseFactory? factory,
+    String? path,
+    bool singleInstance = true,
+  }) async {
     final f = factory ?? databaseFactory;
     final dbPath = path ?? p.join(await f.getDatabasesPath(), _dbName);
     final database = await f.openDatabase(
       dbPath,
       options: OpenDatabaseOptions(
         version: _version,
-        onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
+        singleInstance: singleInstance,
+        onConfigure: _configure,
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
       ),
     );
     return AppDatabase._(database);
+  }
+
+  static Future<void> _configure(Database db) async {
+    await db.execute('PRAGMA foreign_keys = ON');
+    // Two connections now read this file — the app's and the background
+    // worker's. WAL lets the worker's short reads run while the app is mid-save
+    // instead of colliding, and the timeout absorbs the overlap that remains.
+    // An in-memory database (tests) has no journal to switch; ignore it there.
+    try {
+      await db.rawQuery('PRAGMA journal_mode = WAL');
+      await db.rawQuery('PRAGMA busy_timeout = 5000');
+    } catch (_) {}
   }
 
   static Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -72,6 +96,16 @@ class AppDatabase {
       await db.execute('ALTER TABLE exercises '
           'ADD COLUMN muscle_confirmed INTEGER NOT NULL DEFAULT 0');
       await _backfillMuscles(db);
+    }
+    // v7: companion moments — the outbox that gets mine to the relay and the
+    // ledger that stops theirs from being announced twice. An upgraded install
+    // starts with both empty and its event cursor at 0; the age guard in
+    // `CompanionAlerts` is what keeps that from replaying a week of history as
+    // notifications on first run.
+    if (oldVersion < 7) {
+      await db.execute(_eventOutboxTable);
+      await db.execute(_eventSeenTable);
+      await db.execute('ALTER TABLE sync_state ADD COLUMN event_cursor TEXT');
     }
   }
 
@@ -128,6 +162,34 @@ class AppDatabase {
     CREATE TABLE settings (
       key   TEXT PRIMARY KEY,
       value TEXT NOT NULL
+    )
+  ''';
+
+  /// Moments of mine that haven't reached the relay yet.
+  ///
+  /// A workout started in a basement gym with no signal still has to announce
+  /// itself when the phone comes back up, so the event is written here first and
+  /// published on the next sync. Rows carry the id the server dedupes on, so a
+  /// publish that succeeded but whose response was lost costs nothing on retry.
+  static const _eventOutboxTable = '''
+    CREATE TABLE event_outbox (
+      id         TEXT PRIMARY KEY,
+      kind       TEXT NOT NULL,
+      payload    TEXT NOT NULL,      -- JSON
+      created_at INTEGER NOT NULL
+    )
+  ''';
+
+  /// Companions' moments this device has already raised a notification for.
+  ///
+  /// The cursor alone is not enough: the foreground app and the background
+  /// worker pull the same feed from their own isolates, and whichever loses the
+  /// race would otherwise announce the same PR a second time. The ledger is the
+  /// single claim on "this one has been told".
+  static const _eventSeenTable = '''
+    CREATE TABLE event_seen (
+      id      TEXT PRIMARY KEY,
+      seen_at INTEGER NOT NULL
     )
   ''';
 
@@ -227,6 +289,7 @@ class AppDatabase {
         scope         TEXT PRIMARY KEY,         -- 'self' or a companion public_id
         server_url    TEXT,
         cursor        TEXT,
+        event_cursor  TEXT,                     -- separate seq space to `cursor`
         session_token TEXT,
         updated_at    INTEGER
       )
@@ -235,8 +298,16 @@ class AppDatabase {
     // ── Device-local settings ────────────────────────────────────────
     batch.execute(_settingsTable);
 
+    // ── Companion moments (outbound + already-announced) ─────────────
+    batch.execute(_eventOutboxTable);
+    batch.execute(_eventSeenTable);
+
     await batch.commit(noResult: true);
   }
+
+  /// Release the handle. Only the background isolate needs this — the app's
+  /// database lives as long as the app does.
+  Future<void> close() => db.close();
 
   // ── Settings (device-local key/value) ──────────────────────────────
   Future<String?> getSetting(String key) async {
@@ -728,6 +799,7 @@ class AppDatabase {
       serverUrl: r['server_url'] as String?,
       token: r['session_token'] as String?,
       cursor: int.tryParse((r['cursor'] as String?) ?? '') ?? 0,
+      eventCursor: int.tryParse((r['event_cursor'] as String?) ?? '') ?? 0,
     );
   }
 
@@ -743,6 +815,77 @@ class AppDatabase {
   Future<void> setSyncToken(String? token) => _setSyncField('session_token', token);
   Future<void> setSyncCursor(int cursor) =>
       _setSyncField('cursor', cursor.toString());
+  Future<void> setEventCursor(int cursor) =>
+      _setSyncField('event_cursor', cursor.toString());
+
+  // ── Companion moments: outbox ─────────────────────────────────────────
+
+  /// Queue one of my moments for the next publish.
+  Future<void> enqueueEvent({
+    required String id,
+    required String kind,
+    required String payloadJson,
+    required int createdAt,
+  }) async {
+    await db.insert(
+      'event_outbox',
+      {
+        'id': id,
+        'kind': kind,
+        'payload': payloadJson,
+        'created_at': createdAt,
+      },
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+  }
+
+  Future<List<Map<String, Object?>>> getOutboxEvents() =>
+      db.query('event_outbox', orderBy: 'created_at ASC');
+
+  Future<void> clearOutboxEvents(List<String> ids) async {
+    if (ids.isEmpty) return;
+    final placeholders = List.filled(ids.length, '?').join(',');
+    await db.rawDelete('DELETE FROM event_outbox WHERE id IN ($placeholders)', ids);
+  }
+
+  /// Drop queued moments that have gone stale. A "started a workout" that
+  /// surfaces the next morning is not late news, it is wrong news — better to
+  /// say nothing than to announce a session that finished hours ago.
+  Future<void> pruneOutboxEvents(int olderThanMs) async {
+    await db.delete('event_outbox',
+        where: 'created_at <= ?', whereArgs: [olderThanMs]);
+  }
+
+  // ── Companion moments: already-announced ledger ───────────────────────
+
+  /// Claims [ids] as announced and returns the subset that was *not* already
+  /// claimed — the ones this device still owes the user a notification for.
+  ///
+  /// Insert-then-report rather than check-then-insert: the foreground app and
+  /// the background worker read the same feed from separate isolates, and only
+  /// letting the row's primary key arbitrate keeps one moment to one alert.
+  Future<Set<String>> claimUnseenEvents(List<String> ids) async {
+    if (ids.isEmpty) return const {};
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final fresh = <String>{};
+    await db.transaction((txn) async {
+      for (final id in ids) {
+        final n = await txn.insert(
+          'event_seen',
+          {'id': id, 'seen_at': now},
+          conflictAlgorithm: ConflictAlgorithm.ignore,
+        );
+        // sqflite returns 0 for a row `ignore` skipped, and the new rowid
+        // otherwise — so a non-zero result *is* the claim.
+        if (n != 0) fresh.add(id);
+      }
+    });
+    return fresh;
+  }
+
+  Future<void> pruneSeenEvents(int olderThanMs) async {
+    await db.delete('event_seen', where: 'seen_at <= ?', whereArgs: [olderThanMs]);
+  }
 }
 
 /// The 'self' row of `sync_state`: where/how this device talks to the server.
@@ -750,5 +893,15 @@ class SyncState {
   final String? serverUrl;
   final String? token;
   final int cursor;
-  const SyncState({this.serverUrl, this.token, this.cursor = 0});
+
+  /// Position in the *event* feed. Its own sequence space — moments and object
+  /// changes are separate streams on the relay and advance independently.
+  final int eventCursor;
+
+  const SyncState({
+    this.serverUrl,
+    this.token,
+    this.cursor = 0,
+    this.eventCursor = 0,
+  });
 }

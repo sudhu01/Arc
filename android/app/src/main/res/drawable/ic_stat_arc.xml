@@ -1,0 +1,28 @@
+<!--
+  Arc's mark in the status bar: a rising strength curve with the record marked
+  at its head. PRODUCT principle 4 — show the trend, not the trophy — which is
+  also the one shape that survives being rendered at 18dp in a monochrome strip.
+
+  Android silhouettes small icons, so this is drawn white-on-transparent and
+  tinted at runtime with the accent the user actually chose (see
+  `notificationAccent` in lib/data/notify/arc_notifier.dart). Round caps match
+  the rounded icon family the rest of Arc uses.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- The curve: flat off the bottom-left, steepening to the right. -->
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M4,19.4 C 9.4,18.9 13.4,14.9 15.9,8.6" />
+    <!-- The record, sitting where the curve is heading. -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M22,4.6 A 2.5,2.5 0 1 1 17,4.6 A 2.5,2.5 0 1 1 22,4.6 Z" />
+</vector>

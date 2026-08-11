@@ -114,6 +114,7 @@ class ArcData {
           weight: topSet.weight,
           maxWeight: maxW,
           reps: topSet.reps,
+          sets: e.sets.length,
         );
         rec.history.add(point);
         if (rec.best == null || topScore > rec.best!.score) {
@@ -195,6 +196,15 @@ class ArcData {
     return (today.difference(d).inHours / 24).round();
   }
 
+  /// How long a personal record wears its "New" tag. Just over a fortnight, so
+  /// a lift trained once a week still shows its last two attempts as fresh.
+  static const newRecordDays = 16;
+
+  /// Whether a record set on [isoStr] still counts as new — the one definition
+  /// behind the tag on a record row and the "new records only" filter, so the
+  /// filter can never disagree with the badge it filters on.
+  static bool isNewRecord(String isoStr) => daysAgo(isoStr) <= newRecordDays;
+
   static String relDate(String isoStr) {
     final n = daysAgo(isoStr);
     if (n == 0) return 'Today';
@@ -271,6 +281,31 @@ class ArcData {
   static String sessionGroup(Session s, Exercise? Function(String) exById) =>
       dominantGroup(s.entries.map((e) => e.exerciseId), exById) ??
       groupFromTitle(s.title);
+
+  /// Every muscle group a session trained, deduplicated and in body order.
+  ///
+  /// Primary groups only. Bench builds triceps, but a session that counted every
+  /// assisting group would report six or seven of them on any ordinary day, and
+  /// the answer this exists to give — *what did I train* — is the one a lifter
+  /// answers with the lifts they chose, not with the ones that came along.
+  /// [muscleVolume] is where the assisted share is counted.
+  ///
+  /// Body order rather than volume order, because [Muscle]'s declaration order is
+  /// the display order everywhere else in Arc; a group should not move because a
+  /// set was added to it.
+  ///
+  /// Empty when nothing resolves — every exercise missing from this device's
+  /// library — which is the case [sessionGroup] still answers, from the title.
+  static List<Muscle> sessionMuscles(
+      Session s, Exercise? Function(String) exById) {
+    final trained = <Muscle>{};
+    for (final e in s.entries) {
+      final ex = exById(e.exerciseId);
+      if (ex != null) trained.add(ex.muscle);
+    }
+    if (trained.isEmpty) return const [];
+    return Muscle.values.where(trained.contains).toList();
+  }
 
   static WorkoutStats workoutStats(List<Session> sessions) {
     var totalSets = 0;

@@ -118,6 +118,35 @@ class SyncApi {
   Future<Map<String, dynamic>> pullSelf(String token, int cursor) =>
       _get('/v1/sync/self?cursor=$cursor', token: token);
 
+  // ── Events ────────────────────────────────────────────────────────
+  // A separate feed to `sync`, with its own sequence space. Changes relay
+  // *state* and are re-read forever; events relay *moments* and are told once.
+
+  /// Publish my moments. Idempotent on each event's `id`, so an unconfirmed
+  /// publish can be retried without announcing the same workout twice.
+  Future<void> publishEvents(
+          String token, List<Map<String, dynamic>> events) =>
+      _post('/v1/events', {'events': events}, token: token);
+
+  /// Accepted companions' moments with `server_seq > cursor`, oldest first.
+  /// Returns `{events:[…], cursor}`.
+  Future<Map<String, dynamic>> pullEvents(String token, int cursor) =>
+      _get('/v1/events?cursor=$cursor', token: token);
+
+  /// Claim a push token for this account, so the relay can wake the device
+  /// instead of waiting for it to poll. A no-op on a relay with no FCM
+  /// credentials configured — the row is simply never read.
+  Future<void> registerDevice(String token, String deviceToken,
+          {String platform = 'android'}) =>
+      _post('/v1/devices', {'token': deviceToken, 'platform': platform},
+          token: token);
+
+  Future<void> unregisterDevice(String token, String deviceToken) => _send(
+        'DELETE',
+        '/v1/devices/${Uri.encodeComponent(deviceToken)}',
+        token: token,
+      );
+
   // ── plumbing ──────────────────────────────────────────────────────
   Future<Map<String, dynamic>> _post(String path, Map<String, dynamic> body,
           {String? token}) =>

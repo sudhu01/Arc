@@ -33,7 +33,7 @@ func main() {
 		log.Printf("purged legacy volume from %d change rows", n)
 	}
 
-	srv := &Server{store: store}
+	srv := &Server{store: store, push: NewPusher(store)}
 	httpServer := &http.Server{
 		Addr:              addr,
 		Handler:           srv.routes(),
@@ -82,6 +82,7 @@ func janitor(ctx context.Context, store *Store) {
 			return
 		case <-ticker.C:
 			store.PurgeExpired(ctx)
+			store.PurgeOldEvents(ctx)
 		}
 	}
 }

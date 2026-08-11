@@ -77,6 +77,19 @@ class IdentityService {
     return _activate(_b64uDecode(seedB64), db);
   }
 
+  /// Load an identity this device already holds, and report whether there was
+  /// one. Unlike [ensure] it never mints a keypair.
+  ///
+  /// For callers that run without a user in front of them — the background
+  /// delivery worker — where creating an identity on a device that has not
+  /// finished first run would register an account nobody asked for.
+  Future<bool> tryLoad(AppDatabase db) async {
+    final seedB64 = await _storage.read(_seedKey);
+    if (seedB64 == null) return false;
+    await _activate(_b64uDecode(seedB64), db);
+    return true;
+  }
+
   /// Sign [message] with the private key (e.g. a server challenge nonce).
   Future<List<int>> sign(List<int> message) async {
     final signature =

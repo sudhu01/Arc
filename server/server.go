@@ -13,6 +13,9 @@ import (
 // Server holds shared dependencies for the HTTP handlers.
 type Server struct {
 	store *Store
+	// Wakes companion devices when an event is published. Never nil — an
+	// unconfigured deployment gets the no-op pusher and delivers by polling.
+	push Pusher
 }
 
 const maxBodyBytes = 4 << 20 // 4 MiB cap on request bodies
@@ -40,6 +43,13 @@ func (s *Server) routes() http.Handler {
 	mux.Handle("POST /v1/sync/push", s.auth(s.handleSyncPush))
 	mux.Handle("GET /v1/sync/pull", s.auth(s.handleSyncPull))
 	mux.Handle("GET /v1/sync/self", s.auth(s.handleSyncSelf))
+
+	// Events — companion moments, and the push registry that accelerates them
+	// (authenticated).
+	mux.Handle("POST /v1/events", s.auth(s.handleEventPublish))
+	mux.Handle("GET /v1/events", s.auth(s.handleEventPull))
+	mux.Handle("POST /v1/devices", s.auth(s.handleDeviceRegister))
+	mux.Handle("DELETE /v1/devices/{token}", s.auth(s.handleDeviceDelete))
 
 	return logging(mux)
 }

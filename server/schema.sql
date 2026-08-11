@@ -62,3 +62,30 @@ CREATE TABLE IF NOT EXISTS changes (
 );
 CREATE INDEX IF NOT EXISTS idx_changes_seq ON changes(server_seq);
 CREATE INDEX IF NOT EXISTS idx_changes_owner_seq ON changes(owner_id, server_seq);
+
+-- The event feed. Where `changes` relays *state* (which survives forever and is
+-- re-read on every pull), this relays *moments* — "started a workout", "hit a
+-- PR" — that are only worth telling a companion about once, and only while
+-- they're still true. Rows are append-only, keyed by a client-generated id so a
+-- retried publish is a no-op, and swept after `eventRetention`.
+CREATE TABLE IF NOT EXISTS events (
+  id         TEXT PRIMARY KEY,        -- client-generated; makes publish idempotent
+  owner_id   TEXT NOT NULL,
+  kind       TEXT NOT NULL,           -- workout_started | pr
+  payload    TEXT NOT NULL,           -- JSON, opaque to the server
+  server_seq INTEGER NOT NULL,        -- monotonic; the companion's pull cursor
+  created_at INTEGER NOT NULL         -- when the moment happened, on the actor's clock
+);
+CREATE INDEX IF NOT EXISTS idx_events_seq ON events(server_seq);
+CREATE INDEX IF NOT EXISTS idx_events_owner_seq ON events(owner_id, server_seq);
+
+-- Push-transport registry: one row per device that can receive an FCM message.
+-- Empty on a deployment with no FCM credentials configured, which is the
+-- supported default — companions still receive every event by polling.
+CREATE TABLE IF NOT EXISTS devices (
+  token      TEXT PRIMARY KEY,        -- FCM registration token
+  public_id  TEXT NOT NULL,
+  platform   TEXT NOT NULL,           -- android | ios | web
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_devices_user ON devices(public_id);

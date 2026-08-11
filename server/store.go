@@ -41,6 +41,16 @@ func OpenStore(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	// Adopt whatever the event feed already reached, for a relay upgrading from
+	// a build that derived the sequence from MAX(server_seq). Runs once: after
+	// this the counter is the only writer.
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO meta (key, value)
+		SELECT 'events_seq', CAST(COALESCE(MAX(server_seq), 0) AS TEXT) FROM events
+		WHERE NOT EXISTS (SELECT 1 FROM meta WHERE key = 'events_seq')`); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return &Store{db: db}, nil
 }
 
@@ -430,6 +440,191 @@ func (s *Store) PullChanges(ctx context.Context, owners []string, cursor int64, 
 		}
 	}
 	return out, newCursor, rows.Err()
+}
+
+// ── Event feed (companion moments) ────────────────────────────────────
+
+// eventRetention is how long a delivered moment stays in the feed. It only has
+// to outlast the longest gap between a companion's polls — a phone that was off
+// for a weekend still catches up — and the client discards anything too stale to
+// still be true anyway. Beyond that the row is noise.
+const eventRetention = 7 * 24 * time.Hour
+
+type EventIn struct {
+	ID        string `json:"id"`
+	Kind      string `json:"kind"`
+	Payload   string `json:"-"` // raw JSON, stored verbatim
+	CreatedAt int64  `json:"created_at"`
+}
+
+type EventOut struct {
+	ID        string `json:"id"`
+	OwnerID   string `json:"owner_id"`
+	OwnerName string `json:"owner_name"` // joined from users, so a fresh device can name the actor
+	Kind      string `json:"kind"`
+	ServerSeq int64  `json:"server_seq"`
+	Payload   string `json:"-"` // raw JSON
+	CreatedAt int64  `json:"created_at"`
+}
+
+// PublishEvents appends the caller's moments to the feed, assigning each a new
+// monotonic server_seq. Re-publishing an id already stored is a no-op (the
+// client's outbox retries until the server confirms), so a flaky network can
+// never make one workout announce itself twice.
+func (s *Store) PublishEvents(ctx context.Context, owner string, in []EventIn) (int64, error) {
+	var maxSeq int64
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	for _, e := range in {
+		// Counted in `meta`, not derived from MAX(server_seq) the way `changes`
+		// does it. `changes` rows are never deleted, so its max is a safe
+		// high-water mark; events are swept weekly, and a quiet week that
+		// emptied the table would restart the sequence at 1 — leaving every
+		// companion whose stored cursor sat above it permanently unable to see
+		// another event. Gaps from a deduped insert are fine; going backwards
+		// never is.
+		var seq int64
+		if err := tx.QueryRowContext(ctx, `
+			INSERT INTO meta (key, value) VALUES ('events_seq', '1')
+			ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(meta.value AS INTEGER) + 1 AS TEXT)
+			RETURNING CAST(value AS INTEGER)`).Scan(&seq); err != nil {
+			return 0, err
+		}
+		res, err := tx.ExecContext(ctx, `
+			INSERT INTO events (id, owner_id, kind, payload, server_seq, created_at)
+			VALUES (?, ?, ?, ?, ?, ?)
+			ON CONFLICT(id) DO NOTHING`,
+			e.ID, owner, e.Kind, e.Payload, seq, e.CreatedAt)
+		if err != nil {
+			return 0, err
+		}
+		// A conflict consumed no seq — don't advance the cursor past a row that
+		// was never written, or the next publish would leave a hole.
+		if n, _ := res.RowsAffected(); n > 0 && seq > maxSeq {
+			maxSeq = seq
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return maxSeq, nil
+}
+
+// PullEvents returns events published by the given peers with server_seq >
+// cursor, oldest first.
+func (s *Store) PullEvents(ctx context.Context, owners []string, cursor int64, limit int) ([]EventOut, int64, error) {
+	if len(owners) == 0 {
+		return nil, cursor, nil
+	}
+	placeholders := strings.Repeat("?,", len(owners))
+	placeholders = placeholders[:len(placeholders)-1]
+
+	args := make([]any, 0, len(owners)+2)
+	args = append(args, cursor)
+	for _, o := range owners {
+		args = append(args, o)
+	}
+	args = append(args, limit)
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT e.id, e.owner_id, COALESCE(u.display_name, ''), e.kind,
+		       e.server_seq, e.payload, e.created_at
+		FROM events e
+		LEFT JOIN users u ON u.public_id = e.owner_id
+		WHERE e.server_seq > ? AND e.owner_id IN (`+placeholders+`)
+		ORDER BY e.server_seq ASC
+		LIMIT ?`, args...)
+	if err != nil {
+		return nil, cursor, err
+	}
+	defer rows.Close()
+
+	out := []EventOut{}
+	newCursor := cursor
+	for rows.Next() {
+		var e EventOut
+		if err := rows.Scan(&e.ID, &e.OwnerID, &e.OwnerName, &e.Kind,
+			&e.ServerSeq, &e.Payload, &e.CreatedAt); err != nil {
+			return nil, cursor, err
+		}
+		out = append(out, e)
+		if e.ServerSeq > newCursor {
+			newCursor = e.ServerSeq
+		}
+	}
+	return out, newCursor, rows.Err()
+}
+
+// PurgeOldEvents drops events past [eventRetention] (called by the janitor).
+func (s *Store) PurgeOldEvents(ctx context.Context) {
+	cutoff := time.Now().Add(-eventRetention).UnixMilli()
+	_, _ = s.db.ExecContext(ctx, `DELETE FROM events WHERE created_at <= ?`, cutoff)
+}
+
+// ── Push device registry ──────────────────────────────────────────────
+
+// RegisterDevice claims a push token for the caller. Tokens migrate between
+// accounts when a phone is handed on or an identity is restored, so the row is
+// keyed by token and re-pointed rather than duplicated.
+func (s *Store) RegisterDevice(ctx context.Context, publicID, token, platform string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO devices (token, public_id, platform, updated_at)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(token) DO UPDATE SET
+			public_id  = excluded.public_id,
+			platform   = excluded.platform,
+			updated_at = excluded.updated_at`,
+		token, publicID, platform, nowMs())
+	return err
+}
+
+// DeleteDevice releases a push token the caller owns. Scoped to [publicID] on
+// purpose: a token is guessable-adjacent at worst, but matching on it alone
+// would let any authenticated account silence another's push by naming it.
+func (s *Store) DeleteDevice(ctx context.Context, publicID, token string) error {
+	_, err := s.db.ExecContext(ctx,
+		`DELETE FROM devices WHERE token = ? AND public_id = ?`, token, publicID)
+	return err
+}
+
+// reapDevice drops a token FCM has told us is dead, whoever owns it. Only ever
+// called with a token the transport just failed to deliver to.
+func (s *Store) reapDevice(ctx context.Context, token string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM devices WHERE token = ?`, token)
+	return err
+}
+
+// DeviceTokens returns every registered push token for the given users.
+func (s *Store) DeviceTokens(ctx context.Context, users []string) ([]string, error) {
+	if len(users) == 0 {
+		return nil, nil
+	}
+	placeholders := strings.Repeat("?,", len(users))
+	placeholders = placeholders[:len(placeholders)-1]
+	args := make([]any, 0, len(users))
+	for _, u := range users {
+		args = append(args, u)
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT token FROM devices WHERE public_id IN (`+placeholders+`)`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var t string
+		if err := rows.Scan(&t); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
 }
 
 func nullIfEmpty(s string) any {

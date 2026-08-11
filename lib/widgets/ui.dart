@@ -664,9 +664,10 @@ class _DecimalInputFormatter extends TextInputFormatter {
 /// Region colour dot — Push | Pull | Legs | Core.
 ///
 /// For the surfaces that speak the coarse tier and have no finer group to name:
-/// a calendar day, its legend, a session's title. Anywhere an [Exercise] or a
-/// [Muscle] is in hand, use [MuscleDot] instead — it is the one the user can
-/// recolour, and the one that tells thirteen groups apart rather than four.
+/// a session's title, and a calendar day whose exercises this device can't
+/// resolve. Anywhere an [Exercise] or a [Muscle] is in hand, use [MuscleDot]
+/// instead — it is the one the user can recolour, and the one that tells
+/// thirteen groups apart rather than four.
 class GroupDot extends StatelessWidget {
   final String group;
   final double size;
@@ -761,6 +762,206 @@ class Tag extends StatelessWidget {
           weight: FontWeight.w700,
           color: color ?? AppColors.accentStrong,
           letterSpacing: 0.4,
+        ),
+      ),
+    );
+  }
+}
+
+/// The sort mark: three bars whose lengths step down, or up when [reversed].
+///
+/// Drawn rather than borrowed. Material's sort glyphs are an arrow with bars
+/// beside it, which at 18px collapses into a smudge; the bars alone read as
+/// "ranked, this way up" at any size, and reversing them animates into a
+/// statement of the new direction rather than a swap of two unrelated icons.
+class SortBars extends StatelessWidget {
+  final bool reversed;
+  final double size;
+  final Color? color;
+
+  const SortBars({
+    super.key,
+    required this.reversed,
+    this.size = 18,
+    this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final instant = MediaQuery.disableAnimationsOf(context);
+    final target = reversed ? 1.0 : 0.0;
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: target, end: target),
+      duration: Duration(milliseconds: instant ? 0 : 260),
+      curve: Curves.easeOutCubic,
+      builder: (context, t, _) => CustomPaint(
+        size: Size(size, size * 0.72),
+        painter: _SortBarsPainter(
+          t: t,
+          color: color ?? AppColors.ink,
+        ),
+      ),
+    );
+  }
+}
+
+class _SortBarsPainter extends CustomPainter {
+  /// 0 = longest bar on top, 1 = longest bar at the bottom.
+  final double t;
+  final Color color;
+
+  const _SortBarsPainter({required this.t, required this.color});
+
+  static const _lengths = [1.0, 0.66, 0.36];
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final sw = size.height * 0.185;
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = sw
+      ..strokeCap = StrokeCap.round;
+
+    // Inset by half a stroke so the round caps sit inside the box rather than
+    // bleeding out of it — the bars must line up with text beside them.
+    final top = sw / 2;
+    final span = size.height - sw;
+    final maxLen = size.width - sw;
+
+    for (var i = 0; i < 3; i++) {
+      final f = _lengths[i] + (_lengths[2 - i] - _lengths[i]) * t;
+      final y = top + span * (i / 2);
+      canvas.drawLine(
+        Offset(top, y),
+        Offset(top + maxLen * f, y),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_SortBarsPainter old) => old.t != t || old.color != color;
+}
+
+/// On/off control for a single setting.
+///
+/// The knob wears the accent's own ink when on and the plain surface when off,
+/// so both states inherit a contrast pair the palette already guarantees — at
+/// every accent hue, in both themes.
+class ArcSwitch extends StatelessWidget {
+  final bool value;
+  final ValueChanged<bool>? onChanged;
+
+  const ArcSwitch({super.key, required this.value, this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    const trackW = 46.0;
+    const trackH = 28.0;
+    const knob = 22.0;
+    final instant = MediaQuery.disableAnimationsOf(context);
+    final duration = Duration(milliseconds: instant ? 0 : 170);
+
+    final track = AnimatedContainer(
+      duration: duration,
+      curve: Curves.easeOut,
+      width: trackW,
+      height: trackH,
+      padding: const EdgeInsets.all((trackH - knob) / 2),
+      decoration: BoxDecoration(
+        color: value ? AppColors.accent : AppColors.bar,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: AnimatedAlign(
+        duration: duration,
+        curve: Curves.easeOut,
+        alignment: value ? Alignment.centerRight : Alignment.centerLeft,
+        child: AnimatedContainer(
+          duration: duration,
+          width: knob,
+          height: knob,
+          decoration: BoxDecoration(
+            color: value ? AppColors.accentInk : AppColors.surface,
+            shape: BoxShape.circle,
+            boxShadow: AppShadows.sm,
+          ),
+        ),
+      ),
+    );
+
+    if (onChanged == null) return track;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        HapticFeedback.selectionClick();
+        onChanged!(!value);
+      },
+      child: track,
+    );
+  }
+}
+
+/// A labelled setting that toggles — the whole row is the target, so the
+/// 46px switch never has to be hit on its own.
+class ArcSwitchRow extends StatelessWidget {
+  final String label;
+  final String? sub;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  const ArcSwitchRow({
+    super.key,
+    required this.label,
+    this.sub,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      toggled: value,
+      label: sub == null ? label : '$label. $sub',
+      onTap: () {
+        HapticFeedback.selectionClick();
+        onChanged(!value);
+      },
+      child: ExcludeSemantics(
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () {
+            HapticFeedback.selectionClick();
+            onChanged(!value);
+          },
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 44),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(label,
+                          style:
+                              AppText.ui(size: 15, weight: FontWeight.w600)),
+                      if (sub != null) ...[
+                        const SizedBox(height: 2),
+                        Text(sub!,
+                            style: AppText.ui(
+                                size: 12.5,
+                                weight: FontWeight.w500,
+                                height: 1.35,
+                                color: AppColors.muted)),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 14),
+                ArcSwitch(value: value, onChanged: onChanged),
+              ],
+            ),
+          ),
         ),
       ),
     );

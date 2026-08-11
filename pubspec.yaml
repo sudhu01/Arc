@@ -61,6 +61,8 @@ dependencies:
   # lib/body/body_server.dart) — nothing is fetched at runtime, so the body
   # renders the same offline as on wifi.
   webview_flutter: ^4.13.0
+  flutter_local_notifications: ^22.3.0
+  workmanager: ^0.10.7
 
 dev_dependencies:
   flutter_test:

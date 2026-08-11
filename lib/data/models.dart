@@ -152,12 +152,19 @@ class RecordPoint {
   final double maxWeight; // heaviest weight lifted that session (0 for bodyweight)
   final int reps;
 
+  /// Sets performed on this exercise that session, counted Arc's way: a set and
+  /// its drop tiers are one set. This is volume, not a strength test, so it is
+  /// the only field here that describes the whole session rather than the
+  /// top-scoring set.
+  final int sets;
+
   const RecordPoint({
     required this.date,
     required this.score,
     required this.weight,
     required this.maxWeight,
     required this.reps,
+    required this.sets,
   });
 }
 

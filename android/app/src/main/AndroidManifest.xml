@@ -10,6 +10,10 @@
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
+    <!-- Companion alerts: a workout started, a record broken. Runtime-granted
+         on Android 13+; Arc asks for it just after pairing, when the user has
+         someone to hear about. See ArcStore._requestAlertPermission. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <application
         android:label="Arc"
         android:name="${applicationName}"
@@ -37,6 +41,14 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- The status-bar mark for every Arc notification, so one is
+             recognisable as Arc's before a word of it is read. The colour is
+             set per-notification instead of here: it follows the accent hue the
+             user picked, rendered for whichever way the shade is running. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_arc" />
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

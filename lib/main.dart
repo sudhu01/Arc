@@ -5,13 +5,25 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'data/db/app_database.dart';
 import 'data/identity/identity_service.dart';
+import 'data/notify/arc_notifier.dart';
+import 'data/notify/background_worker.dart';
+import 'data/notify/push_transport.dart';
 import 'data/store.dart';
 import 'data/sync/sync_service.dart';
 import 'screens/home_shell.dart';
+import 'sheets/sheet_actions.dart';
 import 'theme/app_theme.dart';
 import 'theme/muscle_palette.dart';
 import 'theme/muscle_palette_controller.dart';
 import 'theme/theme_controller.dart';
+
+/// Where a notification tap lands before there is a widget tree to receive it.
+///
+/// A tap can arrive at three different times — during `main`, from a cold
+/// launch; while the shell is alive; or between the two, in the half-second
+/// before the first frame — and all three funnel here. `_AlertRouting` drains
+/// it as soon as there is a Navigator to open a sheet on.
+final ValueNotifier<AlertTap?> _pendingTap = ValueNotifier(null);
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -22,7 +34,15 @@ Future<void> main() async {
   final identity = IdentityService();
   await identity.ensure(db);
   final sync = SyncService(db: db, identity: identity);
-  final store = ArcStore(db: db, identity: identity, sync: sync);
+
+  // Notification channels are registered before the store so the very first
+  // sync below already has somewhere to post what it pulls. Creating a channel
+  // is not a permission prompt — that is asked for later, at pairing.
+  final notifier = ArcNotifier();
+  await notifier.init(onTap: (tap) => _pendingTap.value = tap);
+  _pendingTap.value = await notifier.launchTap();
+
+  final store = ArcStore(db: db, identity: identity, sync: sync, notifier: notifier);
   await store.init();
 
   // Restore the saved theme before the first frame so a dark install never
@@ -35,10 +55,30 @@ Future<void> main() async {
   SystemChrome.setSystemUIOverlayStyle(ArcTheme.overlayStyle);
 
   // Sync on launch (background): push anything left dirty from a previous
-  // session and pull companions' latest. Failures surface via a toast.
+  // session and pull companions' latest. Failures surface via a toast. A
+  // successful pass also delivers any companion moments waiting on the relay.
   unawaited(store.autoSync());
 
+  // Delivery while Arc is closed. Registered once, kept by the OS across
+  // launches — see `background_worker.dart` for what the fifteen-minute floor
+  // buys and what an FCM transport would buy on top of it.
+  unawaited(registerCompanionPolling());
+
+  // The relay can only wake this device if something hands it an address.
+  // `PollingOnlyTransport` never does, which is why the poll above is the
+  // shipped delivery path; swapping in `packages/arc_fcm` is what turns this
+  // line live. See docs/push-notifications.md.
+  unawaited(_attachPushTransport(store, const PollingOnlyTransport()));
+
   runApp(ArcAppRoot(store: store, theme: theme, palette: palette));
+}
+
+/// Registers this device's push address with the relay and turns every nudge
+/// into the same delivery pass a poll would have run.
+Future<void> _attachPushTransport(ArcStore store, PushTransport transport) async {
+  final token = await transport.deviceToken();
+  if (token != null) await store.registerPushToken(token);
+  transport.wakeSignals.listen((_) => store.deliverCompanionAlerts());
 }
 
 class ArcAppRoot extends StatelessWidget {
@@ -85,13 +125,89 @@ class ArcAppRoot extends StatelessWidget {
             // They fold to one int rather than thirteen so the key stays a
             // short string — the shell rebuilds when any group moves, which is
             // what puts a recoloured dot on every row behind the sheet.
-            home: HomeShell(
-              key: ValueKey(
-                  '${theme.isDark}:${theme.accentHue}:${MusclePalette.signature}'),
+            home: _AlertRouting(
+              child: HomeShell(
+                key: ValueKey(
+                    '${theme.isDark}:${theme.accentHue}:${MusclePalette.signature}'),
+              ),
             ),
           );
         },
       ),
     );
   }
+}
+
+/// Keeps companion moments arriving while Arc is on screen, and takes a tapped
+/// notification where it was pointing.
+///
+/// The background worker owns delivery when the app is closed; this owns it
+/// when the app is open, where its fifteen-minute floor would feel broken —
+/// you should not learn that your training partner started an hour ago while
+/// staring at their profile.
+class _AlertRouting extends StatefulWidget {
+  const _AlertRouting({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_AlertRouting> createState() => _AlertRoutingState();
+}
+
+class _AlertRoutingState extends State<_AlertRouting>
+    with WidgetsBindingObserver {
+  /// Frequent enough that a companion's set feels live, rare enough to be
+  /// invisible on a battery: one authenticated GET that returns an empty list
+  /// almost every time.
+  static const _foregroundPoll = Duration(minutes: 4);
+
+  Timer? _poll;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _pendingTap.addListener(_drainTap);
+    _startPolling();
+    // A tap that arrived before this tree existed is still waiting.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _drainTap());
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _pendingTap.removeListener(_drainTap);
+    _poll?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _startPolling();
+      // Coming back to Arc is the single most likely moment to have missed
+      // something, so it costs a pass rather than waiting out the interval.
+      unawaited(context.read<ArcStore>().deliverCompanionAlerts());
+    } else {
+      _poll?.cancel();
+      _poll = null;
+    }
+  }
+
+  void _startPolling() {
+    _poll?.cancel();
+    _poll = Timer.periodic(_foregroundPoll, (_) {
+      if (mounted) unawaited(context.read<ArcStore>().deliverCompanionAlerts());
+    });
+  }
+
+  Future<void> _drainTap() async {
+    final tap = _pendingTap.value;
+    if (tap == null || !mounted) return;
+    _pendingTap.value = null;
+    await Sheets.openCompanionProgress(context, tap.companionId);
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
