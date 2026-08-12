@@ -321,6 +321,18 @@ class AppColors {
   static Color get navLine => _p.navLine;
   static Color get navMuted => _p.navMuted;
 
+  /// The marker wash behind highlighted text in a workout note.
+  ///
+  /// Derived rather than held on the palette so it follows a repointed accent
+  /// hue for free. Surge takes [accentSoft] as it stands — a pale lime that
+  /// carries [ink] at 16:1. Midnight cannot: its [accentSoft] is a near-black
+  /// teal meant to sit *under* accent text, and as a wash it would be invisible
+  /// against [surface]. There the accent is thinned onto the surface instead,
+  /// which lands a wash that separates from the card and still clears 8:1.
+  static Color get highlight => _p.isDark
+      ? Color.alphaBlend(_p.accent.withValues(alpha: 0.22), _p.surface)
+      : _p.accentSoft;
+
   /// Modal scrim — `rgba(10,8,6,0.42)` in the design, shared by both themes.
   static const scrim = Color(0x6B0A0806);
 

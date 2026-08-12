@@ -14,6 +14,20 @@
          on Android 13+; Arc asks for it just after pairing, when the user has
          someone to hear about. See ArcStore._requestAlertPermission. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- The rest timer. VIBRATE is the buzz at zero; SCHEDULE_EXACT_ALARM is
+         what makes that buzz land on the second while Arc is swapped away or
+         killed. The exact-alarm grant is revocable on Android 12+, so
+         TimerNotifier checks canScheduleExactNotifications() every time and
+         falls back to an inexact alarm rather than pretending. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <!-- The opt-in floating bubble (flutter_overlay_window). Granted by hand in
+         system settings, never at launch — Arc asks only when the user turns
+         "Float over other apps" on. The plugin contributes its own overlay
+         service; FOREGROUND_SERVICE is what lets that service run. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <application
         android:label="Arc"
         android:name="${applicationName}"
@@ -48,6 +62,36 @@
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_icon"
             android:resource="@drawable/ic_stat_arc" />
+
+        <!-- Hosts the floating rest bar in its own Flutter engine (entry point
+             `overlayMain` in lib/main.dart). Declared here rather than by the
+             plugin because Android 14 requires every foreground service to
+             name a type, and only the app can justify the one it uses. -->
+        <service
+            android:name="flutter.overlay.window.flutter_overlay_window.OverlayService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Displays the running rest timer over other apps so a lifter can watch the countdown without leaving what they are doing." />
+        </service>
+
+        <!-- Serves the user's chosen alarm sound to the notification system.
+             A notification channel's sound is played by the OS, not by Arc, so
+             a path into Arc's own storage is unreadable from there — it has to
+             be a content:// URI, and the system UI has to be granted read on it
+             (MainActivity.grantSoundUri). Without this provider a custom sound
+             works while Arc is alive and silently falls back to the default in
+             exactly the case the user is least able to check. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.timerprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/timer_sound_paths" />
+        </provider>
 
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

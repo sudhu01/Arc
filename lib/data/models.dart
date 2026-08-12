@@ -1,5 +1,6 @@
 // Domain models for Arc — ported from arc-data.js.
 
+import '../notes/note_doc.dart';
 import 'muscle.dart';
 
 class Exercise {
@@ -122,6 +123,13 @@ class Session {
   /// never an empty string — null always means "no name, use [title]".
   final String? name;
 
+  /// The user's written note about this workout, as an encoded [NoteDoc] —
+  /// see `lib/notes/note_doc.dart`. Normalized so a note whose text is blank is
+  /// stored as null: `session.notes != null` always means there is something to
+  /// read. Opaque to everything outside the notes layer, which is what lets it
+  /// ride the sync payload as one string.
+  final String? notes;
+
   final List<Entry> entries;
 
   const Session({
@@ -129,12 +137,30 @@ class Session {
     required this.date,
     required this.title,
     this.name,
+    this.notes,
     required this.entries,
   });
 
   /// The label to show anywhere this workout is named: the user's word for it,
   /// else the one Arc inferred.
   String get displayTitle => name ?? title;
+
+  /// [notes] is nullable, so passing null cannot mean "clear it" — [clearNotes]
+  /// is how the note is removed.
+  Session copyWith({
+    String? name,
+    String? notes,
+    bool clearNotes = false,
+    List<Entry>? entries,
+  }) =>
+      Session(
+        id: id,
+        date: date,
+        title: title,
+        name: name ?? this.name,
+        notes: clearNotes ? null : (notes ?? this.notes),
+        entries: entries ?? this.entries,
+      );
 }
 
 /// Trims a workout name down to what's worth storing. Blank in any form comes
@@ -142,6 +168,16 @@ class Session {
 String? normalizeSessionName(String? raw) {
   final t = raw?.trim();
   return (t == null || t.isEmpty) ? null : t;
+}
+
+/// The same for a note: a document that decodes to nothing but whitespace and
+/// the marks of empty checklist lines is not a note. Every read path out of the
+/// database runs through this, so `session.notes != null` can be trusted
+/// everywhere to mean "there is something to read".
+String? normalizeSessionNotes(String? raw) {
+  if (raw == null || raw.isEmpty) return null;
+  final text = NoteDoc.decode(raw).text.replaceAll(RegExp('[$checkEmpty$checkDone]'), '');
+  return text.trim().isEmpty ? null : raw;
 }
 
 /// A single point in an exercise's progression history.

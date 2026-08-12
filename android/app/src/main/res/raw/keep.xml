@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Keeps Arc's default rest alarm in release builds.
+
+     `raw/arc_rest` is never named from Java or Kotlin — the notification
+     channel is built in Dart, which passes the resource *name* and lets the
+     platform resolve it at runtime. The release resource shrinker only sees
+     the Java/Kotlin reference graph, finds nothing pointing at the sound, and
+     drops it: the debug build alarms correctly and the shipped one falls back
+     to the system default, silently, in the only build nobody debugs.
+
+     Verified by `aapt2 dump resources` — without this line the release APK has
+     no `raw` type at all. -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@raw/arc_rest" />

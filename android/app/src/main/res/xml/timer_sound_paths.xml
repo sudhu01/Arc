@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The one directory Arc's FileProvider exposes: the copy of the alarm sound
+     the user chose. Scoped to `timer_sound/` inside app files rather than to
+     files-path root, so the provider can never hand out the database, the
+     identity keypair, or anything else living beside it. -->
+<paths>
+    <files-path
+        name="timer_sound"
+        path="timer_sound/" />
+</paths>

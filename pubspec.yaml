@@ -64,6 +64,23 @@ dependencies:
   flutter_local_notifications: ^22.3.0
   workmanager: ^0.10.7
 
+  # The rest timer (lib/timer/). `timezone` is not a feature — it is what
+  # `zonedSchedule` takes, and scheduling an exact alarm is the only way the
+  # buzz survives Arc being swapped away or killed.
+  #
+  # `file_selector` rather than `file_picker` for the custom alarm sound:
+  # file_picker pins win32 ^5 and share_plus pins ^6, so the two cannot coexist.
+  # file_selector goes through Android's document picker, which also means
+  # choosing a sound needs no storage permission at all.
+  audioplayers: ^6.7.1
+  vibration: ^3.2.0
+  timezone: ^0.11.1
+  file_selector: ^1.1.0
+
+  # The bubble that floats over other apps. Opt-in: it runs a second Flutter
+  # engine behind SYSTEM_ALERT_WINDOW, which the user has to grant by hand.
+  flutter_overlay_window: ^0.5.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -105,6 +122,11 @@ flutter:
     - assets/body/
     - assets/body/addons/postprocessing/
     - assets/body/addons/shaders/
+    # Arc's default rest alarm. The same bytes also live at
+    # android/app/src/main/res/raw/arc_rest.wav, because the notification
+    # channel can only reach a raw resource while the app is dead — both
+    # copies are written by tool/make_rest_tone.mjs.
+    - assets/sound/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

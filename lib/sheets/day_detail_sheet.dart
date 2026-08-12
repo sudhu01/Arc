@@ -4,6 +4,8 @@ import '../data/arc_data.dart';
 import '../data/companion_data.dart';
 import '../data/models.dart';
 import '../data/store.dart';
+import '../notes/note_doc.dart';
+import '../notes/note_spans.dart';
 import '../theme/app_theme.dart';
 import '../widgets/arc_icons.dart';
 import '../widgets/ui.dart';
@@ -38,12 +40,17 @@ String workoutAsText({
   }
 
   final year = ArcData.parseISO(ses.date).year;
+  final note = NoteDoc.decode(ses.notes).plainText.trim();
   return [
     // The name leads when there is one — it's what the person pasting this
     // called the session, and the date alone doesn't say it.
     if (ses.name != null) ses.name!,
     '${ArcData.fmtDate(ses.date, 'long')} $year',
     ...body,
+    // What was written about the session belongs with it: pasted into a
+    // message, the note is usually the part worth sending. Formatting doesn't
+    // survive plain text, but the checklist marks do.
+    if (note.isNotEmpty) ...['', 'Notes', note],
   ].join('\n');
 }
 
@@ -183,8 +190,29 @@ class DayDetailSheet extends StatelessWidget {
                 ],
               ),
             ),
+            // Beside the name, below the share and copy pair on the title row.
+            // A companion sees it only when there is something to read — a
+            // control that opens an empty page they cannot write on is noise.
+            if (session == null || ses.notes != null)
+              SheetIconButton(
+                icon: 'note',
+                active: ses.notes != null,
+                semanticLabel: ses.notes != null
+                    ? 'Read the note on this workout'
+                    : 'Add a note to this workout',
+                onTap: () => Sheets.openNotes(context,
+                    ses: ses, readOnly: session != null),
+              ),
           ],
         ),
+        if (ses.notes != null) ...[
+          const SizedBox(height: 13),
+          _NotePreview(
+            doc: NoteDoc.decode(ses.notes),
+            onTap: () => Sheets.openNotes(context,
+                ses: ses, readOnly: session != null),
+          ),
+        ],
         const SizedBox(height: 16),
         for (final e in ses.entries)
           if (exById(e.exerciseId) case final ex?) ...[
@@ -216,6 +244,54 @@ class DayDetailSheet extends StatelessWidget {
             ],
           ),
       ],
+    );
+  }
+}
+
+/// The first two lines of the note, in the note's own formatting.
+///
+/// The icon alone would make a note something you have to remember is there;
+/// on a companion's workout it would hide the only part of the session they
+/// didn't already log themselves. Two lines is enough to recognise a note and
+/// not enough to compete with the sets below it.
+class _NotePreview extends StatelessWidget {
+  final NoteDoc doc;
+  final VoidCallback onTap;
+
+  const _NotePreview({required this.doc, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return PressScale(
+      onTap: onTap,
+      scale: 0.985,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(14, 11, 11, 12),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: AppRadii.rMd,
+          border: Border.all(color: AppColors.line),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Text.rich(
+                // Scaled down as one ramp, so a note that leads with a big line
+                // still previews with its own hierarchy instead of flattening.
+                TextSpan(children: noteSpans(doc, scale: 0.82)),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Padding(
+              padding: const EdgeInsets.only(top: 1),
+              child: ArcIcon('chevR', size: 17, color: AppColors.faint),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -7,6 +7,8 @@ import '../data/store.dart';
 import '../sheets/sheet_actions.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_controller.dart';
+import '../timer/timer_bar.dart';
+import '../timer/timer_controller.dart';
 import '../widgets/arc_icons.dart';
 import '../widgets/charts.dart';
 import '../widgets/ui.dart';
@@ -115,6 +117,8 @@ class _DashboardState extends State<Dashboard> {
               ),
             ),
             const SizedBox(width: 12),
+            const _TimerButton(),
+            const SizedBox(width: 8),
             const _AppearanceButton(),
             const SizedBox(width: 8),
             _HeaderButton(
@@ -534,6 +538,27 @@ class _HeaderButton extends StatelessWidget {
           child: Icon(icon, size: 22, color: iconColor ?? AppColors.ink),
         ),
       ),
+    );
+  }
+}
+
+/// Opens the rest timer.
+///
+/// Wears the accent while a rest is running, so the header answers "is my timer
+/// going?" without the user opening anything. When one *is* running the bar is
+/// already on screen above this and is the faster target — this is the way in
+/// when nothing is running, which is the only time it needs to be found.
+class _TimerButton extends StatelessWidget {
+  const _TimerButton();
+
+  @override
+  Widget build(BuildContext context) {
+    final active = context.select<TimerController, bool>((t) => t.isActive);
+    return _HeaderButton(
+      icon: ArcIcons.byName('timer', filled: active),
+      tooltip: active ? 'Rest running' : 'Rest timer',
+      iconColor: active ? AppColors.accentStrong : null,
+      onTap: () => openTimer(context),
     );
   }
 }

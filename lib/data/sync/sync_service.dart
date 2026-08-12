@@ -353,6 +353,9 @@ class SyncService {
         // Only carried when the workout actually has one, so an unnamed
         // session's payload stays identical to what earlier versions pushed.
         if (s['name'] != null) 'name': s['name'],
+        // Same rule for the note: carried only when there is one. A peer on a
+        // build without notes drops the key and the workout is unaffected.
+        if (s['notes'] != null) 'notes': s['notes'],
       };
       if (!deleted) {
         final entries = <Map<String, dynamic>>[];

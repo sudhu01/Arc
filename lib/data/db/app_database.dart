@@ -23,7 +23,7 @@ class AppDatabase {
   final Database db;
 
   static const _dbName = 'arc.db';
-  static const _version = 7;
+  static const _version = 8;
 
   /// Open the database. [factory] and [path] are injectable so tests can run
   /// against an in-memory sqflite_common_ffi database.
@@ -106,6 +106,12 @@ class AppDatabase {
       await db.execute(_eventOutboxTable);
       await db.execute(_eventSeenTable);
       await db.execute('ALTER TABLE sync_state ADD COLUMN event_cursor TEXT');
+    }
+    // v8: the user's written note on a workout. Nullable — every existing
+    // session simply has none, and a companion on a build that predates notes
+    // reads the session exactly as it did before.
+    if (oldVersion < 8) {
+      await db.execute('ALTER TABLE sessions ADD COLUMN notes TEXT');
     }
   }
 
@@ -247,6 +253,7 @@ class AppDatabase {
         date       TEXT NOT NULL,               -- ISO yyyy-MM-dd
         title      TEXT NOT NULL,               -- derived: Push Day | Leg Day | …
         name       TEXT,                        -- user-given name; null = use title
+        notes      TEXT,                        -- encoded NoteDoc; null = no note
         owner_id   TEXT NOT NULL,
         updated_at INTEGER NOT NULL,
         deleted    INTEGER NOT NULL DEFAULT 0,
@@ -563,6 +570,7 @@ class AppDatabase {
               date: s['date'] as String,
               title: s['title'] as String,
               name: normalizeSessionName(s['name'] as String?),
+              notes: normalizeSessionNotes(s['notes'] as String?),
               entries: entriesBySession[s['id'] as String] ?? const [],
             ))
         .toList();
@@ -579,6 +587,7 @@ class AppDatabase {
           'date': s.date,
           'title': s.title,
           'name': s.name,
+          'notes': s.notes,
           'owner_id': ownerId,
           'updated_at': DateTime.now().millisecondsSinceEpoch,
           'deleted': 0,
@@ -731,6 +740,8 @@ class AppDatabase {
           'title': p['title'] ?? '',
           // Absent on payloads from a build that predates workout names.
           'name': normalizeSessionName(p['name'] as String?),
+          // Likewise for notes.
+          'notes': normalizeSessionNotes(p['notes'] as String?),
           'owner_id': ownerId,
           'updated_at': updatedAt,
           'deleted': deleted ? 1 : 0,

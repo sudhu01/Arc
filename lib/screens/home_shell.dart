@@ -5,6 +5,8 @@ import 'package:provider/provider.dart';
 import '../data/store.dart';
 import '../sheets/sheet_actions.dart';
 import '../theme/app_theme.dart';
+import '../timer/timer_bar.dart';
+import '../timer/timer_controller.dart';
 import '../widgets/arc_icons.dart';
 import 'dashboard.dart';
 import 'records.dart';
@@ -21,18 +23,47 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   int _tab = 0;
 
+  /// Guards against a second timer screen stacking on the first when the shade
+  /// and the floating bar are both tapped, or when one is tapped twice.
+  bool _timerOpen = false;
+  ValueNotifier<int>? _openRequests;
+
   void _setTab(int t) => setState(() => _tab = t);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // The countdown in the shade and the bubble over other apps both point
+    // here, and neither has a navigator of its own.
+    final requests = context.read<TimerController>().openRequests;
+    if (identical(requests, _openRequests)) return;
+    _openRequests?.removeListener(_openTimer);
+    _openRequests = requests..addListener(_openTimer);
+  }
+
+  @override
+  void dispose() {
+    _openRequests?.removeListener(_openTimer);
+    super.dispose();
+  }
+
+  Future<void> _openTimer() async {
+    if (_timerOpen || !mounted) return;
+    _timerOpen = true;
+    try {
+      await openTimer(context);
+    } finally {
+      _timerOpen = false;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final safeBottom = MediaQuery.of(context).padding.bottom;
+    final safeTop = MediaQuery.of(context).padding.top;
     final navHeight = 76 + safeBottom;
+    final timerActive = context.select<TimerController, bool>((t) => t.isActive);
 
-    // `IndexedStack` keeps every tab mounted, and wraps the ones it isn't
-    // showing in `Visibility.maintain` — which keeps them laid out and their
-    // tickers running. That is free for four screens of widgets, but the
-    // Exercises tab hosts a WebGL renderer in a WebView, and a platform view
-    // has no idea it stopped being painted. Exercises is told which it is.
     final screens = [
       Dashboard(onNavTab: _setTab),
       const Records(),
@@ -42,14 +73,21 @@ class _HomeShellState extends State<HomeShell> {
 
     return Scaffold(
       backgroundColor: AppColors.bg,
+      resizeToAvoidBottomInset: false,
       body: Stack(
         children: [
-          // screen content
           Positioned.fill(
             child: SafeArea(
               bottom: false,
-              child: Padding(
-                padding: EdgeInsets.only(top: 6, bottom: navHeight + 8),
+              child: AnimatedPadding(
+                duration: Duration(
+                    milliseconds:
+                        MediaQuery.disableAnimationsOf(context) ? 0 : 320),
+                curve: Curves.easeOutQuart,
+                padding: EdgeInsets.only(
+                  top: timerActive ? TimerBar.height + 14 : 6,
+                  bottom: navHeight + 8,
+                ),
                 child: IndexedStack(
                   index: _tab,
                   children: screens,
@@ -78,6 +116,12 @@ class _HomeShellState extends State<HomeShell> {
                 ),
               ),
             ),
+          ),
+          Positioned(
+            top: safeTop + 6,
+            left: 0,
+            right: 0,
+            child: TimerBar(onOpen: _openTimer),
           ),
 
           // toast
@@ -192,32 +236,43 @@ class _BottomNav extends StatelessWidget {
             children: items.map((it) {
               if (it == null) return const Expanded(child: SizedBox.shrink());
               final active = tab == it.index;
+              final ink = active ? AppColors.accentStrong : AppColors.navMuted;
               return Expanded(
-                child: GestureDetector(
+                // One node per tab, announced as a button that is or is not
+                // the current one. `excludeSemantics` drops the label Text so
+                // it is not read twice, which also drops the detector's own tap
+                // action — so the action is declared here instead.
+                child: Semantics(
+                  label: it.label,
+                  button: true,
+                  selected: active,
+                  excludeSemantics: true,
                   onTap: () => onTab(it.index),
-                  behavior: HitTestBehavior.opaque,
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        ArcIcons.byName(it.icon,
-                            filled: active && it.icon == 'home'),
-                        size: 22,
-                        color: active ? AppColors.accentStrong : AppColors.navMuted,
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        it.label,
-                        style: AppText.ui(
-                          size: 10,
-                          height: 1.1,
-                          weight: active ? FontWeight.w700 : FontWeight.w600,
-                          color:
-                              active ? AppColors.accentStrong : AppColors.navMuted,
+                  child: GestureDetector(
+                    onTap: () => onTab(it.index),
+                    behavior: HitTestBehavior.opaque,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Every tab marks current the same way: the glyph
+                        // fills. Home and Records have a solid twin in the
+                        // Material font, the dumbbell is solid already, and the
+                        // calendar is drawn (see ArcCalendarGlyph) because the
+                        // font ships no filled calendar to swap to.
+                        ArcIcon(it.icon, size: 22, filled: active, color: ink),
+                        const SizedBox(height: 3),
+                        Text(
+                          it.label,
+                          style: AppText.ui(
+                            size: 10,
+                            height: 1.1,
+                            weight: active ? FontWeight.w700 : FontWeight.w600,
+                            color: ink,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               );

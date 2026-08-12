@@ -248,6 +248,13 @@ class ArcStore extends ChangeNotifier {
     toast.value = ArcToast(msg, icon, ++_toastSeq);
   }
 
+  /// Raises a toast from outside the store — the rest timer's settings, mostly,
+  /// which have news of their own but no data to write. Routed through here
+  /// rather than posted to [toast] directly so the sequence number stays the
+  /// store's to hand out; two writers minting their own would let a stale one
+  /// re-show a toast the shell had already retired.
+  void announce(String msg, String icon) => _fire(msg, icon);
+
   /// Persist a session for [date] from draft entries. Detects new PRs.
   ///
   /// [name] is what the user called this workout — blank or null clears it and
@@ -268,6 +275,10 @@ class ArcStore extends ChangeNotifier {
         date: date,
         title: ArcData.inferTitle(rawEntries.map((e) => e.exerciseId), exById),
         name: normalizeSessionName(name),
+        // The session is rebuilt from the draft, which knows nothing about the
+        // note. Carried across by hand, or editing a workout would silently
+        // delete what the user wrote about it.
+        notes: existing?.notes,
         entries: rawEntries
             .map((e) => Entry(
                   id: ArcData.uid('ent'),
@@ -343,6 +354,27 @@ class ArcStore extends ChangeNotifier {
     }
 
     unawaited(autoSync()); // push this change to the relay in the background
+  }
+
+  /// Write the note on the workout logged for [date]. Null or blank clears it.
+  ///
+  /// Deliberately not routed through [saveSession]: a note cannot set a record,
+  /// so there is nothing to recompute and nothing to announce, and firing
+  /// "Workout saved" over a note the user is still writing would be a lie about
+  /// what just happened. Silent by design — the note is already on screen.
+  Future<void> setSessionNotes(String date, String? notes) async {
+    final existing = sessionForDate(date);
+    if (existing == null) return;
+    final clean = normalizeSessionNotes(notes);
+    if (clean == existing.notes) return;
+
+    final next = existing.copyWith(notes: clean, clearNotes: clean == null);
+    await _db.upsertSessionTree(next, _me);
+    _sessions = [
+      for (final s in _sessions) s.id == next.id ? next : s,
+    ];
+    notifyListeners();
+    unawaited(autoSync());
   }
 
   // ── Companion moments ───────────────────────────────────────────────

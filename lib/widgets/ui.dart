@@ -130,12 +130,18 @@ class SheetIconButton extends StatelessWidget {
   final String semanticLabel;
   final double size;
 
+  /// Carries the accent and the filled glyph — for a control whose *state* is
+  /// worth reading before it's pressed, like a workout that already has a note.
+  /// Off by default: on a title row of pure actions, an accent means nothing.
+  final bool active;
+
   const SheetIconButton({
     super.key,
     required this.icon,
     required this.onTap,
     required this.semanticLabel,
     this.size = 34,
+    this.active = false,
   });
 
   @override
@@ -154,10 +160,15 @@ class SheetIconButton extends StatelessWidget {
               width: size,
               height: size,
               decoration: BoxDecoration(
-                color: AppColors.surface2,
+                color: active ? AppColors.accentSoft : AppColors.surface2,
                 shape: BoxShape.circle,
               ),
-              child: ArcIcon(icon, size: size * 0.53, color: AppColors.muted),
+              child: ArcIcon(
+                icon,
+                size: size * 0.53,
+                color: active ? AppColors.accentStrong : AppColors.muted,
+                filled: active,
+              ),
             ),
           ),
         ),
@@ -257,6 +268,12 @@ class ArcButton extends StatelessWidget {
   final bool disabled;
   final String? icon;
 
+  /// Draws the glyph alone and keeps [label] as the screen-reader name.
+  ///
+  /// For controls whose glyph is already unambiguous — a play triangle on a
+  /// timer — where the word beside it is read once and never again.
+  final bool iconOnly;
+
   const ArcButton({
     super.key,
     required this.label,
@@ -266,7 +283,8 @@ class ArcButton extends StatelessWidget {
     this.full = false,
     this.disabled = false,
     this.icon,
-  });
+    this.iconOnly = false,
+  }) : assert(!iconOnly || icon != null, 'An icon-only button needs an icon');
 
   @override
   Widget build(BuildContext context) {
@@ -324,35 +342,56 @@ class ArcButton extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           if (icon != null) ...[
-            ArcIcon(icon!, size: size == BtnSize.lg ? 20 : 18, color: fg),
-            const SizedBox(width: 8),
+            // A hair larger with the label gone, so the glyph carries the
+            // button's height on its own rather than floating in it.
+            ArcIcon(
+              icon!,
+              size: switch ((size, iconOnly)) {
+                (BtnSize.lg, true) => 22,
+                (BtnSize.lg, false) => 20,
+                (_, true) => 20,
+                (_, false) => 18,
+              },
+              color: fg,
+            ),
+            if (!iconOnly) const SizedBox(width: 8),
           ],
           // Flexible so a long label (or a large system text scale) ellipsizes
           // instead of overflowing the button.
-          Flexible(
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: AppText.ui(
-                size: fs,
-                weight: FontWeight.w600,
-                color: fg,
-                letterSpacing: -0.1,
+          if (!iconOnly)
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppText.ui(
+                  size: fs,
+                  weight: FontWeight.w600,
+                  color: fg,
+                  letterSpacing: -0.1,
+                ),
               ),
             ),
-          ),
         ],
       ),
     );
 
-    return Opacity(
+    final button = Opacity(
       opacity: disabled ? 0.45 : 1,
       child: PressScale(
         onTap: disabled ? null : onTap,
         scale: 0.97,
         child: content,
       ),
+    );
+
+    // With no text inside, the name has to be said out loud somewhere.
+    if (!iconOnly) return button;
+    return Semantics(
+      button: true,
+      enabled: !disabled,
+      label: label,
+      child: button,
     );
   }
 }

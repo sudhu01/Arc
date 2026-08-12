@@ -97,8 +97,18 @@ class ArcNotifier {
 
   /// Registers channels and the tap handler. Idempotent, and safe to call
   /// before the user has granted anything — creating a channel is not a prompt.
+  /// [onResponse] receives every response this one does not recognise as a
+  /// companion tap. The plugin allows exactly one handler per process, and the
+  /// rest timer's notifications need one too — so the two share this, rather
+  /// than the second `initialize` call silently replacing the first.
+  ///
+  /// [onBackgroundResponse] must be a top-level function with a
+  /// `vm:entry-point` pragma: it runs in an isolate spawned for a tap that
+  /// arrived with Arc in the background.
   Future<void> init({
     void Function(AlertTap tap)? onTap,
+    void Function(NotificationResponse response)? onResponse,
+    DidReceiveBackgroundNotificationResponseCallback? onBackgroundResponse,
   }) async {
     if (_ready || !_supported) return;
     await _plugin.initialize(
@@ -107,8 +117,13 @@ class ArcNotifier {
       ),
       onDidReceiveNotificationResponse: (response) {
         final tap = AlertTap.decode(response.payload);
-        if (tap != null) onTap?.call(tap);
+        if (tap != null) {
+          onTap?.call(tap);
+        } else {
+          onResponse?.call(response);
+        }
       },
+      onDidReceiveBackgroundNotificationResponse: onBackgroundResponse,
     );
     final android = _android;
     if (android != null) {

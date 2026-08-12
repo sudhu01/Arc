@@ -16,6 +16,23 @@ import 'theme/app_theme.dart';
 import 'theme/muscle_palette.dart';
 import 'theme/muscle_palette_controller.dart';
 import 'theme/theme_controller.dart';
+import 'timer/timer_background.dart';
+import 'timer/timer_controller.dart';
+import 'timer/timer_notification.dart';
+import 'timer/timer_overlay.dart';
+
+/// Entry point for the floating rest bar's own Flutter engine.
+///
+/// The platform starts this by name — `OverlayService` looks up "overlayMain"
+/// in the default entry-point library, which is this file — so it must stay
+/// top-level, keep the pragma, and keep the name. Nothing from `main` above has
+/// run when this executes: it is a second engine in the same process, with its
+/// own everything.
+@pragma('vm:entry-point')
+void overlayMain() {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const TimerOverlayApp());
+}
 
 /// Where a notification tap lands before there is a widget tree to receive it.
 ///
@@ -38,12 +55,29 @@ Future<void> main() async {
   // Notification channels are registered before the store so the very first
   // sync below already has somewhere to post what it pulls. Creating a channel
   // is not a permission prompt — that is asked for later, at pairing.
+  // One notification handler serves the whole app: the plugin allows a single
+  // registration per process, so the companion alerts and the rest timer share
+  // it. `arcTimerBackgroundAction` is the other half — the shade's Pause and
+  // Reset buttons have to work with Arc closed, which is the only state they
+  // exist for.
   final notifier = ArcNotifier();
-  await notifier.init(onTap: (tap) => _pendingTap.value = tap);
+  final timer = TimerController(db);
+  await notifier.init(
+    onTap: (tap) => _pendingTap.value = tap,
+    onResponse: (response) {
+      final action = decodeTimerAction(response);
+      if (action != null) timer.handleAction(action);
+    },
+    onBackgroundResponse: arcTimerBackgroundAction,
+  );
   _pendingTap.value = await notifier.launchTap();
 
   final store = ArcStore(db: db, identity: identity, sync: sync, notifier: notifier);
   await store.init();
+
+  // Before the first frame, so a relaunch mid-rest shows the bar already
+  // counting rather than snapping into place a beat later.
+  await timer.load();
 
   // Restore the saved theme before the first frame so a dark install never
   // flashes light on launch — and the saved group colours with it, so a
@@ -70,7 +104,8 @@ Future<void> main() async {
   // line live. See docs/push-notifications.md.
   unawaited(_attachPushTransport(store, const PollingOnlyTransport()));
 
-  runApp(ArcAppRoot(store: store, theme: theme, palette: palette));
+  runApp(ArcAppRoot(
+      store: store, theme: theme, palette: palette, timer: timer));
 }
 
 /// Registers this device's push address with the relay and turns every nudge
@@ -87,11 +122,13 @@ class ArcAppRoot extends StatelessWidget {
     required this.store,
     required this.theme,
     required this.palette,
+    required this.timer,
   });
 
   final ArcStore store;
   final ThemeController theme;
   final MusclePaletteController palette;
+  final TimerController timer;
 
   @override
   Widget build(BuildContext context) {
@@ -100,10 +137,16 @@ class ArcAppRoot extends StatelessWidget {
         ChangeNotifierProvider.value(value: store),
         ChangeNotifierProvider.value(value: theme),
         ChangeNotifierProvider.value(value: palette),
+        ChangeNotifierProvider.value(value: timer),
       ],
       child: Consumer2<ThemeController, MusclePaletteController>(
         builder: (context, theme, palette, _) {
           SystemChrome.setSystemUIOverlayStyle(ArcTheme.overlayStyle);
+          // The floating bar runs in an engine with no access to any of this,
+          // so it is told the palette here, where a theme or accent change is
+          // already being handled.
+          TimerOverlay.adoptTheme(
+              dark: theme.isDark, accent: AppColors.accent.toARGB32());
           return MaterialApp(
             title: 'Arc',
             debugShowCheckedModeBanner: false,

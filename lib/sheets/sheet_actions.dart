@@ -21,6 +21,7 @@ import 'companion_sheet.dart';
 import 'muscle_colors_sheet.dart';
 import 'muscle_review_sheet.dart';
 import 'muscle_sheet.dart';
+import 'notes_sheet.dart';
 import 'records_filter_sheet.dart';
 import 'share_workout_sheet.dart';
 
@@ -105,6 +106,20 @@ class Sheets {
           text: () => workoutAsText(ses: ses, exById: exById),
         ),
       ],
+    );
+  }
+
+  /// What the user wrote about a workout. [readOnly] for a companion's.
+  static Future<void> openNotes(
+    BuildContext context, {
+    required Session ses,
+    bool readOnly = false,
+  }) {
+    return showArcSheet(
+      context: context,
+      full: true,
+      scrollable: false,
+      builder: (_) => NotesSheet(session: ses, readOnly: readOnly),
     );
   }
 

@@ -7,6 +7,7 @@ import '../data/arc_data.dart';
 import '../data/muscle.dart';
 import '../data/store.dart';
 import '../theme/app_theme.dart';
+import '../timer/timer_controller.dart';
 import '../widgets/arc_icons.dart';
 import '../widgets/ui.dart';
 import 'add_exercise_sheet.dart';
@@ -111,6 +112,10 @@ class _LogSheetState extends State<LogSheet> {
       _query = '';
       _searchController.clear();
     });
+    // The exercise arrives carrying its first set, which is a logged set like
+    // any other — without this the opening set of every lift is the one that
+    // gets no rest.
+    _startRest();
     _maybeAnnounceStart();
   }
 
@@ -454,7 +459,23 @@ class _LogSheetState extends State<LogSheet> {
   int _targetIndex(DraftEntry e) =>
       (_dropTarget[e.id] ?? e.sets.length - 1).clamp(0, e.sets.length - 1);
 
+  /// Starts the rest the moment a set is recorded.
+  ///
+  /// A set row is added *after* the set is done — it arrives prefilled with what
+  /// you just lifted — so this is the real "I have finished a set" moment, and
+  /// catching it here is what makes the rest timer cost the log flow nothing.
+  /// Silent when the user has turned auto-start off.
+  ///
+  /// Today only. Filling in Tuesday's session on Thursday evening is editing a
+  /// record, not resting between sets, and a two-minute alarm for it would be
+  /// the timer talking over the user.
+  void _startRest() {
+    if (_draftDate != ArcData.iso(ArcData.today)) return;
+    context.read<TimerController>().autoStart();
+  }
+
   void _addSet(DraftEntry e) {
+    _startRest();
     setState(() {
       // e.sets can legitimately be empty — every set in the entry can be
       // deleted without deleting the entry itself.
@@ -478,6 +499,9 @@ class _LogSheetState extends State<LogSheet> {
   }
 
   void _addDrop(DraftEntry e) {
+    // A drop tier is a set too — you rack, strip the weight and go again, with
+    // the same rest owed at the end of it.
+    _startRest();
     final s = e.sets[_targetIndex(e)];
     final from = s.drops.isEmpty
         ? (weight: s.weight, reps: s.reps)
