@@ -12,7 +12,7 @@ import 'muscle.dart';
 import 'notify/arc_notifier.dart';
 import 'notify/companion_alerts.dart';
 import 'notify/companion_event.dart';
-import 'sync/sync_api.dart' show SyncException;
+import 'sync/sync_api.dart' show SyncApi, SyncException;
 import 'sync/sync_service.dart';
 
 /// A transient toast request (saved workout / new PR / removed).
@@ -660,7 +660,9 @@ class ArcStore extends ChangeNotifier {
 
   /// Point this device at a different sync server (forces re-auth).
   Future<void> setServerUrl(String url) async {
-    final trimmed = url.trim();
+    // Store it already normalized (scheme added, trailing slash dropped) so the
+    // sheet shows the URL that will actually be called.
+    final trimmed = SyncApi.normalizeBaseUrl(url);
     await _db.setServerUrl(trimmed);
     await _db.setSyncToken(null);
     _serverUrl = trimmed;

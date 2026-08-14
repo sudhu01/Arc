@@ -698,6 +698,47 @@ func TestEventSeqAdoptsAnExistingFeed(t *testing.T) {
 	}
 }
 
+// The adoption in OpenStore runs on every open, not just the first, so it has
+// to tolerate finding its own counter already there. A build that inserted
+// unconditionally started once and then refused every restart with
+// `UNIQUE constraint failed: meta.key` — a relay that cannot be restarted.
+func TestStoreSurvivesRepeatedReopens(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	store, err := OpenStore(path)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	ctx := context.Background()
+	seq, err := store.PublishEvents(ctx, "alice", []EventIn{
+		{ID: "ev-first", Kind: "pr", Payload: "{}", CreatedAt: time.Now().UnixMilli()},
+	})
+	if err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+	_ = store.Close()
+
+	// Each restart must both succeed and leave the feed where it was — an
+	// adoption that reran would reset the counter and hand out a seq the
+	// companions' cursors have already passed, silently hiding the events.
+	for _, id := range []string{"ev-restart-1", "ev-restart-2", "ev-restart-3"} {
+		reopened, err := OpenStore(path)
+		if err != nil {
+			t.Fatalf("reopen before %s: %v", id, err)
+		}
+		next, err := reopened.PublishEvents(ctx, "alice", []EventIn{
+			{ID: id, Kind: "pr", Payload: "{}", CreatedAt: time.Now().UnixMilli()},
+		})
+		if err != nil {
+			t.Fatalf("publish %s: %v", id, err)
+		}
+		if next <= seq {
+			t.Fatalf("restart rewound the feed: %s got seq %d, after %d", id, next, seq)
+		}
+		seq = next
+		_ = reopened.Close()
+	}
+}
+
 func TestDeviceDeleteIsScopedToItsOwner(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {

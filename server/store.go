@@ -44,10 +44,15 @@ func OpenStore(path string) (*Store, error) {
 	// Adopt whatever the event feed already reached, for a relay upgrading from
 	// a build that derived the sequence from MAX(server_seq). Runs once: after
 	// this the counter is the only writer.
+	//
+	// The "runs once" has to be enforced on the INSERT, not by a WHERE on the
+	// SELECT: an aggregate with no GROUP BY yields exactly one row whatever the
+	// WHERE says, so a guard there filters the rows MAX() sees (giving 0) while
+	// still producing a row to insert — which is a UNIQUE violation on every
+	// start after the first, i.e. a relay that boots once and then refuses to.
 	if _, err := db.ExecContext(context.Background(), `
-		INSERT INTO meta (key, value)
-		SELECT 'events_seq', CAST(COALESCE(MAX(server_seq), 0) AS TEXT) FROM events
-		WHERE NOT EXISTS (SELECT 1 FROM meta WHERE key = 'events_seq')`); err != nil {
+		INSERT OR IGNORE INTO meta (key, value)
+		SELECT 'events_seq', CAST(COALESCE(MAX(server_seq), 0) AS TEXT) FROM events`); err != nil {
 		db.Close()
 		return nil, err
 	}

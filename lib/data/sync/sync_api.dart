@@ -9,17 +9,40 @@ import 'package:http/http.dart' as http;
 class SyncException implements Exception {
   final int statusCode;
   final String message;
-  const SyncException(this.statusCode, this.message);
+
+  /// The URL that produced it, when known. A server URL pointing at the wrong
+  /// host or carrying a stray path segment surfaces as a 404, and seeing the
+  /// full URL is the fastest way to recognise that.
+  final String? uri;
+  const SyncException(this.statusCode, this.message, {this.uri});
 
   bool get isUnauthorized => statusCode == 401;
 
   @override
-  String toString() => 'SyncException($statusCode): $message';
+  String toString() =>
+      'SyncException($statusCode): $message${uri == null ? '' : ' [$uri]'}';
 }
 
 class SyncApi {
-  SyncApi({required this.baseUrl, http.Client? client})
-      : _client = client ?? http.Client();
+  SyncApi({required String baseUrl, http.Client? client})
+      : baseUrl = normalizeBaseUrl(baseUrl),
+        _client = client ?? http.Client();
+
+  /// A hand-typed server URL is not yet a usable base: without a scheme
+  /// [Uri.parse] reads the host as a path, and a trailing slash builds
+  /// `https://host//v1/sync/pull`, which the relay's mux does not route. Both
+  /// are normalized once here so every request can just concatenate a path.
+  static String normalizeBaseUrl(String raw) {
+    var url = raw.trim();
+    if (url.isEmpty) return url;
+    if (!RegExp(r'^[a-zA-Z][a-zA-Z0-9+.\-]*://').hasMatch(url)) {
+      url = 'https://$url';
+    }
+    while (url.endsWith('/')) {
+      url = url.substring(0, url.length - 1);
+    }
+    return url;
+  }
 
   final String baseUrl;
   final http.Client _client;
@@ -157,7 +180,8 @@ class SyncApi {
 
   Future<Map<String, dynamic>> _send(String method, String path,
       {Map<String, dynamic>? body, String? token}) async {
-    final req = http.Request(method, Uri.parse('$baseUrl$path'));
+    final url = '$baseUrl$path';
+    final req = http.Request(method, Uri.parse(url));
     // Skip ngrok's free-tier HTML interstitial so it never replaces a JSON
     // response when the relay is exposed via an ngrok tunnel. Ignored by any
     // other server.
@@ -170,15 +194,46 @@ class SyncApi {
     final streamed = await _client.send(req);
     final resp = await http.Response.fromStream(streamed);
 
+    // Only Arc answers in JSON. A 404 from the Go mux ("404 page not found"),
+    // an ngrok interstitial and a proxy's HTML error page all land here too, so
+    // decoding is best-effort: it must never throw over the status code, which
+    // is the part that says what actually went wrong.
     Map<String, dynamic> decoded = const {};
+    var wasJson = resp.body.isEmpty;
     if (resp.body.isNotEmpty) {
-      final v = jsonDecode(resp.body);
-      if (v is Map<String, dynamic>) decoded = v;
+      try {
+        final v = jsonDecode(resp.body);
+        wasJson = true;
+        if (v is Map<String, dynamic>) decoded = v;
+      } on FormatException {
+        wasJson = false;
+      }
     }
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
       throw SyncException(
-          resp.statusCode, (decoded['error'] as String?) ?? 'HTTP ${resp.statusCode}');
+        resp.statusCode,
+        (decoded['error'] as String?) ??
+            _snippet(resp.body) ??
+            'HTTP ${resp.statusCode}',
+        uri: url,
+      );
+    }
+    if (!wasJson) {
+      // A 2xx that isn't JSON is something other than the relay answering —
+      // report it rather than handing callers an empty map to trip over.
+      throw SyncException(
+        resp.statusCode,
+        'expected JSON, got ${_snippet(resp.body)}',
+        uri: url,
+      );
     }
     return decoded;
+  }
+
+  /// A one-line, length-capped preview of a non-JSON body, for error messages.
+  static String? _snippet(String body) {
+    final flat = body.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (flat.isEmpty) return null;
+    return flat.length <= 120 ? flat : '${flat.substring(0, 117)}…';
   }
 }
