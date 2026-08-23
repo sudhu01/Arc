@@ -388,6 +388,21 @@ class AppShadows {
   /// Subtle inner-control shadow.
   static List<BoxShadow> get sm => ArcTheme.palette.smallShadow;
 
+  /// The lift under something the user is holding: a workout card mid-drag,
+  /// the chip that follows an exercise across the library. The card shadow
+  /// pushed further from the surface and deepened to match, so "in the air"
+  /// reads as distance rather than as a second colour.
+  static List<BoxShadow> get lift {
+    final base = ArcTheme.palette.cardShadow.first;
+    return [
+      BoxShadow(
+        color: base.color.withValues(alpha: (base.color.a * 2.1).clamp(0, 1)),
+        blurRadius: base.blurRadius * 1.7,
+        offset: const Offset(0, 10),
+      ),
+    ];
+  }
+
   /// The accent glow under primary buttons and the FAB.
   static List<BoxShadow> get accent {
     final p = ArcTheme.palette;

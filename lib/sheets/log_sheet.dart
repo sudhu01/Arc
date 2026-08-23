@@ -1,7 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show LengthLimitingTextInputFormatter;
+import 'package:flutter/services.dart'
+    show HapticFeedback, LengthLimitingTextInputFormatter;
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform, TargetPlatform;
+import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:provider/provider.dart';
 import '../data/arc_data.dart';
 import '../data/muscle.dart';
@@ -37,6 +41,17 @@ class _LogSheetState extends State<LogSheet> {
   /// Mirrors "the name field has text in it", so typing only rebuilds the sheet
   /// on the one keystroke that flips it rather than on every letter.
   bool _named = false;
+
+  /// The entry being dragged, and the one whose move strip is open. Never both
+  /// at once: they are two routes through the same move, not two states of the
+  /// card.
+  ///
+  /// [_lifted] is a notifier rather than plain state because the card mid-drag
+  /// is a *copy*, lifted into an overlay at the moment the drag began and
+  /// frozen there against setState. Only a listener travelling inside it can
+  /// still hear that it is the one in the air.
+  final ValueNotifier<String?> _lifted = ValueNotifier(null);
+  String? _picked;
 
   @override
   void initState() {
@@ -85,6 +100,7 @@ class _LogSheetState extends State<LogSheet> {
 
   @override
   void dispose() {
+    _lifted.dispose();
     _searchController.dispose();
     _nameController.dispose();
     _nameFocus.dispose();
@@ -199,34 +215,67 @@ class _LogSheetState extends State<LogSheet> {
     return Column(
       children: [
         Expanded(
-          child: ListView(
-            padding: const EdgeInsets.only(top: 12, bottom: 16),
-            children: [
-              _sessionHeader(),
-              const SizedBox(height: 16),
+          child: CustomScrollView(
+            slivers: [
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 12, bottom: 16),
+                  child: _sessionHeader(),
+                ),
+              ),
               if (_entries.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 26, horizontal: 10),
-                  child: Column(
-                    children: [
-                      ArcIcon('dumbbell', size: 36, color: AppColors.faint),
-                      const SizedBox(height: 10),
-                      Text('No exercises yet. Add your first one.',
-                          style:
-                              AppText.ui(size: 14.5, color: AppColors.muted)),
-                    ],
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.symmetric(vertical: 26, horizontal: 10),
+                    child: Column(
+                      children: [
+                        ArcIcon('dumbbell', size: 36, color: AppColors.faint),
+                        const SizedBox(height: 10),
+                        Text('No exercises yet. Add your first one.',
+                            style:
+                                AppText.ui(size: 14.5, color: AppColors.muted)),
+                      ],
+                    ),
                   ),
                 ),
-              for (final e in _entries) ...[
-                _entryCard(e),
-                const SizedBox(height: 16),
-              ],
-              ArcButton(
-                label: 'Add exercise',
-                icon: 'plus',
-                variant: BtnVariant.soft,
-                full: true,
-                onTap: () => setState(() => _view = 'pick'),
+              // The order of these cards is the order of the workout: it is what
+              // saves to the session, and what every screen replays it in. So
+              // the list itself is the control — take a lift by its rail and
+              // move it, or tap the rail and step it a slot at a time.
+              //
+              // A sliver rather than a nested list: the reorder has to be able
+              // to scroll the sheet under the card being held, and a list
+              // shrink-wrapped inside another one cannot.
+              SliverReorderableList(
+                itemCount: _entries.length,
+                onReorder: _onReorder,
+                onReorderStart: (i) {
+                  HapticFeedback.mediumImpact();
+                  _lifted.value = _entries[i].id;
+                  // Holding it is the other way of moving it; two open at once
+                  // would be two answers to the same question.
+                  if (_picked != null) setState(() => _picked = null);
+                },
+                onReorderEnd: (_) => _lifted.value = null,
+                proxyDecorator: _liftCard,
+                itemBuilder: (context, i) => Padding(
+                  key: ValueKey(_entries[i].id),
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: _entryCard(_entries[i], i),
+                ),
+              ),
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: ArcButton(
+                    label: 'Add exercise',
+                    icon: 'plus',
+                    variant: BtnVariant.soft,
+                    full: true,
+                    onTap: () => setState(() => _view = 'pick'),
+                  ),
+                ),
               ),
             ],
           ),
@@ -257,6 +306,40 @@ class _LogSheetState extends State<LogSheet> {
         ),
       ],
     );
+  }
+
+  /// The card mid-drag. It grows a hair and nothing else on the sheet moves —
+  /// the elevation comes from the card itself, which already knows it is the
+  /// one being held.
+  Widget _liftCard(Widget child, int index, Animation<double> animation) {
+    if (MediaQuery.disableAnimationsOf(context)) return child;
+    return AnimatedBuilder(
+      animation: animation,
+      builder: (context, c) => Transform.scale(
+        scale: 1 + 0.02 * Curves.easeOutQuart.transform(animation.value),
+        child: c,
+      ),
+      child: child,
+    );
+  }
+
+  /// Reorder from the drag. [newIndex] arrives as an insert position — the slot
+  /// counted with the card still in the list — so a move down the sheet lands
+  /// one place short of where it reads.
+  void _onReorder(int oldIndex, int newIndex) {
+    setState(() {
+      if (newIndex > oldIndex) newIndex -= 1;
+      _entries.insert(newIndex, _entries.removeAt(oldIndex));
+    });
+    HapticFeedback.selectionClick();
+  }
+
+  /// Reorder from the move strip and from a screen reader's own actions, where
+  /// the destination is already the final index.
+  void _moveEntry(int from, int to) {
+    if (to < 0 || to >= _entries.length) return;
+    setState(() => _entries.insert(to, _entries.removeAt(from)));
+    HapticFeedback.selectionClick();
   }
 
   /// When and what: the two facts that identify a workout, held in one block
@@ -514,41 +597,95 @@ class _LogSheetState extends State<LogSheet> {
     });
   }
 
-  Widget _entryCard(DraftEntry e) {
+  Widget _entryCard(DraftEntry e, int index) {
     final ex = store.exById(e.exerciseId)!;
     final isBw = ex.unit == 'bw';
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: AppRadii.rMd,
-        border: Border.all(color: AppColors.line),
-      ),
+    final picked = _picked == e.id;
+
+    void remove() => setState(() {
+          _entries.removeWhere((x) => x.id == e.id);
+          _dropTarget.remove(e.id);
+          if (picked) _picked = null;
+        });
+
+    return ValueListenableBuilder<String?>(
+      valueListenable: _lifted,
+      // The sets are built once and handed through: only the frame around them
+      // answers to being picked up.
+      builder: (context, lifted, card) {
+        final held = lifted == e.id;
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 140),
+          curve: Curves.easeOut,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: AppRadii.rMd,
+            border: Border.all(
+                color: held || picked ? AppColors.accentLine : AppColors.line),
+            // Held in the air or held open for the arrows — either way this is
+            // the lift the user has hold of, and it is the only card on the
+            // sheet that carries a shadow.
+            boxShadow: held ? AppShadows.lift : null,
+          ),
+          child: card!,
+        );
+      },
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
+              _entryHandle(e, index, ex.name),
+              const SizedBox(width: 2),
               MuscleDot(ex.muscle),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(ex.name,
                     style: AppText.ui(size: 16.5, weight: FontWeight.w700)),
               ),
-              GestureDetector(
-                onTap: () =>
-                    setState(() => _entries.removeWhere((x) => x.id == e.id)),
-                child: Container(
-                  width: 30,
-                  height: 30,
-                  decoration: BoxDecoration(
-                      color: AppColors.surface2, shape: BoxShape.circle),
-                  child: Icon(ArcIcons.byName('x'),
-                      size: 16, color: AppColors.muted),
+              Semantics(
+                button: true,
+                label: 'Remove ${ex.name}',
+                onTap: remove,
+                child: ExcludeSemantics(
+                  child: GestureDetector(
+                    onTap: remove,
+                    behavior: HitTestBehavior.opaque,
+                    // 44 to press, 30 to look at. The row already stands 44
+                    // tall for the rail opposite, so the target costs nothing.
+                    child: SizedBox(
+                      width: 44,
+                      height: 44,
+                      child: Center(
+                        child: Container(
+                          width: 30,
+                          height: 30,
+                          decoration: BoxDecoration(
+                              color: AppColors.surface2,
+                              shape: BoxShape.circle),
+                          child: Icon(ArcIcons.byName('x'),
+                              size: 16, color: AppColors.muted),
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ],
           ),
+          // The length check is not redundant with [picked]: deleting the
+          // second-to-last exercise leaves one card that cannot move, and its
+          // rail goes inert along with it — a strip left open there would be
+          // two dead arrows with nothing to close them.
+          if (picked && _entries.length > 1) ...[
+            const SizedBox(height: 10),
+            _TierReveal(
+              key: ValueKey('move-${e.id}'),
+              animate: true,
+              child: _moveStrip(index),
+            ),
+          ],
           const SizedBox(height: 12),
           // column headers — inset to exactly the stepper columns below
           Padding(
@@ -572,6 +709,167 @@ class _LogSheetState extends State<LogSheet> {
           _addControls(e, isBw),
         ],
       ),
+    );
+  }
+
+  /// Whether picking a card up asks for a press and hold. True on a touch
+  /// screen, where the same movement is how the sheet scrolls.
+  bool get _liftOnHold =>
+      defaultTargetPlatform == TargetPlatform.android ||
+      defaultTargetPlatform == TargetPlatform.iOS;
+
+  /// The rail at the head of an entry card. Hold it to move the lift through
+  /// the workout; tap it to open the same move as two buttons, which is
+  /// the route a screen reader takes and the one a thumb takes when the card
+  /// belongs six lifts further down.
+  ///
+  /// Inert with a single exercise — there is nowhere to send it, and a live
+  /// affordance that does nothing is worse than none. The rail itself stays
+  /// either way: it is the same rail the set ordinals run down, and the card
+  /// would step sideways the moment a second lift arrived.
+  Widget _entryHandle(DraftEntry e, int index, String name) {
+    final movable = _entries.length > 1;
+    final picked = _picked == e.id;
+
+    // Drawn on the ordinal's axis, pressed anywhere in the 44 around it.
+    final grip = SizedBox(
+      width: 44,
+      height: 44,
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: SizedBox(
+          width: _gutterW,
+          child: Center(
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 160),
+              opacity: movable ? 1 : 0,
+              child: ValueListenableBuilder<String?>(
+                valueListenable: _lifted,
+                builder: (context, lifted, _) => ArcIcon('grip',
+                    size: 17,
+                    color: picked || lifted == e.id
+                        ? AppColors.accentStrong
+                        : AppColors.faint),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    if (!movable) return grip;
+
+    void toggle() => setState(() => _picked = picked ? null : e.id);
+
+    return Semantics(
+      button: true,
+      label: 'Reorder $name',
+      hint: 'Exercise ${index + 1} of ${_entries.length}',
+      // A drag means nothing to a screen reader, so the move it performs is
+      // offered here as itself rather than as a gesture to imitate.
+      customSemanticsActions: {
+        if (index > 0)
+          const CustomSemanticsAction(label: 'Move up'): () =>
+              _moveEntry(index, index - 1),
+        if (index < _entries.length - 1)
+          const CustomSemanticsAction(label: 'Move down'): () =>
+              _moveEntry(index, index + 1),
+      },
+      onTap: toggle,
+      child: ExcludeSemantics(
+        child: GestureDetector(
+          // Tap and hold share the rail: a finger that lets go opens the
+          // arrows, one that stays carries the card. The gesture arena
+          // settles which, so neither is the other's fallback.
+          onTap: toggle,
+          behavior: HitTestBehavior.opaque,
+          // Press and hold to pick a card up on a touch screen. The rail runs
+          // down the left edge of every card, and a thumb that starts a scroll
+          // there has to scroll — taking the workout apart is the rarer intent
+          // and can afford to be the deliberate one. A mouse has no such
+          // ambiguity and picks up on the first pixel.
+          child: _liftOnHold
+              ? ReorderableDelayedDragStartListener(index: index, child: grip)
+              : ReorderableDragStartListener(index: index, child: grip),
+        ),
+      ),
+    );
+  }
+
+  /// Reordering for anyone not dragging: one half per direction, in the same
+  /// divided pair as the add-set and add-drop controls further down the card.
+  /// It is the same kind of control, and a second shape for it would only make
+  /// the card harder to read. Tapping the rail again puts it away.
+  Widget _moveStrip(int index) {
+    final divider = ColoredBox(color: AppColors.line, child: const SizedBox());
+
+    Widget half(String icon, String label, bool enabled, VoidCallback onTap) =>
+        Semantics(
+          button: true,
+          enabled: enabled,
+          child: Opacity(
+            opacity: enabled ? 1 : 0.32,
+            child: GestureDetector(
+              onTap: enabled ? onTap : null,
+              behavior: HitTestBehavior.opaque,
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(vertical: 13, horizontal: 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    ArcIcon(icon, size: 16, color: AppColors.accentStrong),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppText.ui(
+                              size: 13.5,
+                              weight: FontWeight.w600,
+                              color: AppColors.accentStrong)),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+
+    final up =
+        half('arrowUp', 'Move up', index > 0, () => _moveEntry(index, index - 1));
+    final down = half('arrowDown', 'Move down', index < _entries.length - 1,
+        () => _moveEntry(index, index + 1));
+
+    // Two labels side by side stop fitting well before the layout breaks, so
+    // the control stacks rather than shrinking both to ellipses — the same
+    // threshold the add controls below it use.
+    final stacked = MediaQuery.textScalerOf(context).scale(13.5) > 19;
+
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: AppRadii.rMd,
+        border: Border.all(color: AppColors.accentLine),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: stacked
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                up,
+                SizedBox(height: 1, child: divider),
+                down,
+              ],
+            )
+          : IntrinsicHeight(
+              child: Row(
+                children: [
+                  Expanded(child: up),
+                  SizedBox(width: 1, child: divider),
+                  Expanded(child: down),
+                ],
+              ),
+            ),
     );
   }
 

@@ -145,6 +145,7 @@ class DayDetailSheet extends StatelessWidget {
     }
 
     final group = ArcData.sessionGroup(ses, exById);
+    final muscles = ArcData.sessionMuscles(ses, exById);
     // The group is spelled out only when the title stops carrying it — a
     // workout called "Chest & Arms" would otherwise state its group in the dot
     // alone, which is exactly what red/green vision can't read.
@@ -162,7 +163,10 @@ class DayDetailSheet extends StatelessWidget {
           children: [
             Padding(
               padding: const EdgeInsets.only(top: 7),
-              child: GroupDot(group),
+              child: MuscleDots(
+                  muscles: muscles,
+                  fallbackRegion: muscles.isEmpty ? group : null,
+                  size: 7),
             ),
             const SizedBox(width: 9),
             Expanded(

@@ -744,6 +744,78 @@ class MuscleDot extends StatelessWidget {
   }
 }
 
+/// The colour signature of one session: a dot per muscle group it trained,
+/// two to a row and wrapping downward.
+///
+/// A workout is rarely one thing. A single dot has to pick a winner — the group
+/// that happened to hold the most lifts — and "chest and triceps" then reads as
+/// chest alone. The cluster says both, in the same colours the user assigned in
+/// the palette and reads on exercise rows, record cards and the history grid,
+/// so nothing new has to be learned to decode it.
+///
+/// Two columns rather than one line: beside a workout title the horizontal axis
+/// belongs to the name, and a six-group session laid out along it would either
+/// shove the title aside or shrink every dot to a speck. Stacking spends the
+/// axis these rows can afford and holds the dots at one size whatever the
+/// session trained. An odd last dot centres under its row.
+class MuscleDots extends StatelessWidget {
+  const MuscleDots({
+    super.key,
+    required this.muscles,
+    this.fallbackRegion,
+    this.size = 6,
+    this.scaleDown = false,
+  });
+
+  final List<Muscle> muscles;
+
+  /// Drawn only when [muscles] is empty on a session that does exist —
+  /// exercises this device hasn't synced. The coarse region is all that is
+  /// knowable there, and one region dot is closer to the truth than no dot.
+  final String? fallbackRegion;
+
+  final double size;
+
+  /// Shrinks the whole cluster to fit its slot rather than overflowing it —
+  /// for the calendar cells, where a day that touches nine groups still has
+  /// only one square to say so in.
+  final bool scaleDown;
+
+  /// Loose enough that a pair reads as two things rather than a dash. The rows
+  /// sit tighter than the columns so the cluster reads down rather than across.
+  double get _gap => size * 0.5;
+  double get _rowGap => size / 3;
+
+  @override
+  Widget build(BuildContext context) {
+    final dots = muscles.isNotEmpty
+        ? [for (final m in muscles) MuscleDot(m, size: size)]
+        : [
+            if (fallbackRegion != null) GroupDot(fallbackRegion!, size: size),
+          ];
+    if (dots.isEmpty) return const SizedBox.shrink();
+    final column = Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var i = 0; i < dots.length; i += 2) ...[
+          if (i != 0) SizedBox(height: _rowGap),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              dots[i],
+              if (i + 1 < dots.length) ...[
+                SizedBox(width: _gap),
+                dots[i + 1],
+              ],
+            ],
+          ),
+        ],
+      ],
+    );
+    return scaleDown ? FittedBox(fit: BoxFit.scaleDown, child: column) : column;
+  }
+}
+
 /// Calendar-style date chip for workout rows: month, day, weekday stacked
 /// (e.g. AUG / 5 / TUE).
 class DateChip extends StatelessWidget {

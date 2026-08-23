@@ -29,6 +29,19 @@ class ExerciseRow extends StatelessWidget {
   /// tap means "reassign this one" instead.
   final VoidCallback? onTap;
 
+  /// The refile grip, seated in a rail down the row's left edge. Supplied by
+  /// the library, which owns the drag; every other list passes nothing and
+  /// keeps the tighter inset it always had.
+  ///
+  /// Deliberately outside the row's own gesture detector: holding the grip must
+  /// never trip the long-press that deletes.
+  final Widget? handle;
+
+  /// True while this row is the one in the air. It stays in place and goes
+  /// translucent rather than collapsing — mid-drag the list is a set of
+  /// destinations, and one that resized under the finger would move all of them.
+  final bool lifted;
+
   const ExerciseRow({
     super.key,
     required this.exercise,
@@ -36,6 +49,8 @@ class ExerciseRow extends StatelessWidget {
     this.best,
     this.showMuscle = true,
     this.onTap,
+    this.handle,
+    this.lifted = false,
   });
 
   @override
@@ -66,7 +81,7 @@ class ExerciseRow extends StatelessWidget {
     final activate =
         onTap ?? (b != null ? () => Sheets.openPR(context, exercise.id) : null);
 
-    return Semantics(
+    final body = Semantics(
       button: true,
       label: '${exercise.name}, $subtitle'
           '${b == null ? '' : ', best ${isBw ? '${b.reps} reps' : '${ArcData.fmtScore(b.score)} kilo estimated one rep max'}'}',
@@ -80,9 +95,9 @@ class ExerciseRow extends StatelessWidget {
           onTap: activate,
           onLongPress: confirmDelete,
           behavior: HitTestBehavior.opaque,
-          child: Container(
-            color: AppColors.surface,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+          child: Padding(
+            // The rail already carries the row's left inset when there is one.
+            padding: EdgeInsets.fromLTRB(handle == null ? 16 : 2, 15, 16, 15),
             child: Row(
               children: [
                 MuscleDot(exercise.muscle, size: 10),
@@ -125,6 +140,17 @@ class ExerciseRow extends StatelessWidget {
         ),
       ),
     );
+
+    return Container(
+      color: AppColors.surface,
+      child: AnimatedOpacity(
+        opacity: lifted ? 0.34 : 1,
+        duration: const Duration(milliseconds: 140),
+        child: handle == null
+            ? body
+            : Row(children: [handle!, Expanded(child: body)]),
+      ),
+    );
   }
 }
 
@@ -133,19 +159,41 @@ class ExerciseRow extends StatelessWidget {
 /// border radius or divider colour.
 class ExerciseGroupCard extends StatelessWidget {
   final List<Widget> rows;
-  const ExerciseGroupCard({super.key, required this.rows});
+
+  /// True while a lift is hovering this group in the library. The whole card
+  /// answers rather than the row under the finger: the drop files the exercise
+  /// under the *group*, and the card is what the group looks like.
+  final bool highlighted;
+
+  const ExerciseGroupCard({
+    super.key,
+    required this.rows,
+    this.highlighted = false,
+  });
 
   @override
   Widget build(BuildContext context) {
     if (rows.isEmpty) return const SizedBox.shrink();
-    return Container(
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 140),
+      curve: Curves.easeOut,
       decoration: BoxDecoration(
         borderRadius: AppRadii.rLg,
-        border: Border.all(color: AppColors.cardLine),
+        border: Border.all(
+            color: highlighted ? AppColors.accentLine : AppColors.cardLine),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
+          // The drop indicator: the accent seam a released lift lands on. Zero
+          // height until the group is the one under the finger, so it opens the
+          // card rather than decorating it.
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 140),
+            curve: Curves.easeOutQuart,
+            height: highlighted ? 3 : 0,
+            color: AppColors.accent,
+          ),
           for (var i = 0; i < rows.length; i++) ...[
             rows[i],
             if (i != rows.length - 1)

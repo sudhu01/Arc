@@ -603,7 +603,11 @@ class _RecentRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final store = context.read<ArcStore>();
-    final grp = ArcData.sessionGroup(ses, store.exById);
+    // Every group the session trained, not just the dominant one — a workout
+    // is rarely one thing, and the row has the vertical room to say so.
+    final muscles = ArcData.sessionMuscles(ses, store.exById);
+    final fallback =
+        muscles.isEmpty ? ArcData.sessionGroup(ses, store.exById) : null;
     final names = ses.entries
         .map((e) => store.exById(e.exerciseId)?.name)
         .where((n) => n != null)
@@ -623,7 +627,7 @@ class _RecentRow extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    GroupDot(grp),
+                    MuscleDots(muscles: muscles, fallbackRegion: fallback),
                     const SizedBox(width: 7),
                     // A workout the user named can run long; it ellipsizes here
                     // rather than shoving the date out of the row.

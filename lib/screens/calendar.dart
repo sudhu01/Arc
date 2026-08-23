@@ -214,9 +214,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                               : AppColors.muted)),
                                   const SizedBox(height: 2),
                                   Expanded(
-                                    child: _DayDots(
+                                    child: MuscleDots(
                                         muscles: muscles,
-                                        fallbackRegion: fallback),
+                                        fallbackRegion: fallback,
+                                        scaleDown: true),
                                   ),
                                 ],
                               ),
@@ -261,72 +262,4 @@ String _dayLabel({
       ? muscles.map((m) => m.label).join(', ')
       : (fallbackRegion ?? '');
   return [date, session.displayTitle, if (groups.isNotEmpty) groups].join(', ');
-}
-
-/// The colour signature of one day: a dot per muscle group the session trained.
-///
-/// The fine tier, not the coarse one, and no key under the grid to decode it.
-/// These are the colours the user assigned in the palette and reads all day on
-/// exercise rows and record cards — a month of them is a month of the same
-/// vocabulary, so the calendar has nothing of its own left to teach. What a
-/// legend could never say is the part that now shows: a session is rarely one
-/// thing, and "chest and triceps" reads off the grid as two dots rather than
-/// collapsing into whichever group happened to have more lifts.
-///
-/// Two to a row, wrapping downward — a pair, then a pair under it, an odd last
-/// dot centred beneath its row. Seven columns fix how wide a day can be, so
-/// laying groups out along that axis is what forced them to shrink; stacking
-/// spends the axis the cell can actually afford, and holds every dot at the same
-/// size whether a day trained one group or six.
-///
-/// The cluster still scales as one unit if a day out-runs even that — the
-/// unusual session that touches nine or ten groups — rather than dropping any.
-/// Nothing here is allowed to overflow the cell it sits in.
-class _DayDots extends StatelessWidget {
-  const _DayDots({required this.muscles, this.fallbackRegion});
-
-  final List<Muscle> muscles;
-
-  /// Drawn only when [muscles] is empty on a day that does hold a session —
-  /// exercises this device hasn't synced. The coarse region is all that is
-  /// knowable there, and one region dot is closer to the truth than no dot.
-  final String? fallbackRegion;
-
-  static const _size = 6.0;
-
-  /// Loose enough that a pair reads as two things rather than a dash. The rows
-  /// sit tighter than the columns so the cluster reads down the cell.
-  static const _gap = 3.0;
-  static const _rowGap = 2.0;
-
-  @override
-  Widget build(BuildContext context) {
-    final dots = muscles.isNotEmpty
-        ? [for (final m in muscles) MuscleDot(m, size: _size)]
-        : [
-            if (fallbackRegion != null) GroupDot(fallbackRegion!, size: _size),
-          ];
-    if (dots.isEmpty) return const SizedBox.shrink();
-    return FittedBox(
-      fit: BoxFit.scaleDown,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (var i = 0; i < dots.length; i += 2) ...[
-            if (i != 0) const SizedBox(height: _rowGap),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                dots[i],
-                if (i + 1 < dots.length) ...[
-                  const SizedBox(width: _gap),
-                  dots[i + 1],
-                ],
-              ],
-            ),
-          ],
-        ],
-      ),
-    );
-  }
 }

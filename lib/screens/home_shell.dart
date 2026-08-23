@@ -339,6 +339,11 @@ class _ToastPillState extends State<_ToastPill> {
           opacity: _shown ? 1 : 0,
           duration: const Duration(milliseconds: 250),
           child: Container(
+            // A toast names what it did, and refiling an exercise names two
+            // things — the lift and where it went. Bounded and wrapped rather
+            // than clipped: the group at the end is the half worth reading.
+            constraints: BoxConstraints(
+                maxWidth: MediaQuery.sizeOf(context).width - 48),
             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
             decoration: BoxDecoration(
               color: AppColors.toastBg,
@@ -359,12 +364,17 @@ class _ToastPillState extends State<_ToastPill> {
                   color: isMedal ? AppColors.accent : AppColors.toastInk,
                 ),
                 const SizedBox(width: 9),
-                Text(
-                  t.msg,
-                  style: AppText.ui(
-                      size: 14.5,
-                      weight: FontWeight.w600,
-                      color: AppColors.toastInk),
+                Flexible(
+                  child: Text(
+                    t.msg,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.ui(
+                        size: 14.5,
+                        weight: FontWeight.w600,
+                        height: 1.3,
+                        color: AppColors.toastInk),
+                  ),
                 ),
               ],
             ),

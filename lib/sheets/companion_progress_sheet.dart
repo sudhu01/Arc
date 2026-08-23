@@ -531,7 +531,9 @@ class _RecentRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final grp = ArcData.sessionGroup(session, data.exById);
+    final muscles = ArcData.sessionMuscles(session, data.exById);
+    final fallback =
+        muscles.isEmpty ? ArcData.sessionGroup(session, data.exById) : null;
     final names = session.entries
         .map((e) => data.exById(e.exerciseId)?.name)
         .where((n) => n != null)
@@ -551,7 +553,7 @@ class _RecentRow extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    GroupDot(grp),
+                    MuscleDots(muscles: muscles, fallbackRegion: fallback),
                     const SizedBox(width: 7),
                     Expanded(
                       child: Text(session.displayTitle,

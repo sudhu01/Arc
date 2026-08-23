@@ -44,6 +44,8 @@ class ArcIcons {
         return Icons.trending_up_rounded;
       case 'arrowUp':
         return Icons.arrow_upward_rounded;
+      case 'arrowDown':
+        return Icons.arrow_downward_rounded;
       case 'clock':
         return Icons.schedule_rounded;
       // Rest timer transport. `replay` rather than a circular-arrow refresh:
@@ -64,6 +66,12 @@ class ArcIcons {
         return Icons.picture_in_picture_alt_outlined;
       case 'target':
         return Icons.gps_fixed_rounded;
+      // The drag rail on an arrangeable row — the library's refile grip and
+      // the log sheet's reorder handle. Dots rather than `drag_handle`'s bars:
+      // the bars read as a menu at this size, and Arc already spends three
+      // stacked lines on nothing.
+      case 'grip':
+        return Icons.drag_indicator_rounded;
       case 'search':
         return Icons.search_rounded;
       case 'layers':
