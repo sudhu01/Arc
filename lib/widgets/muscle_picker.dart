@@ -29,12 +29,19 @@ class MusclePicker extends StatelessWidget {
   /// and a 7px dot is not enough to judge.
   final double dotSize;
 
+  /// Which groups to offer. Defaults to all fourteen, which is right for a
+  /// browsing surface like the records filter. A form asking what a *lift*
+  /// works passes [Muscle.trainable] — Conditioning is not an answer to that
+  /// question, and offering it would let a barbell be filed under it.
+  final List<Muscle>? muscles;
+
   const MusclePicker({
     super.key,
     required this.selected,
     required this.onTap,
     this.disabled = const {},
     this.dotSize = 7,
+    this.muscles,
   });
 
   @override
@@ -43,7 +50,7 @@ class MusclePicker extends StatelessWidget {
       spacing: 8,
       runSpacing: 8,
       children: [
-        for (final m in Muscle.values)
+        for (final m in muscles ?? Muscle.values)
           _MusclePill(
             muscle: m,
             selected: selected.contains(m),

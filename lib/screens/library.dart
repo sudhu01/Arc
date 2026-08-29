@@ -270,6 +270,10 @@ class _ListModeState extends State<_ListMode>
   /// lift is filed under or one it also works, never both.
   Future<void> _file(Exercise e, Muscle m) async {
     if (e.muscle == m) return;
+    // Conditioning is decided by tracking, not by filing — refusing both
+    // directions here is what stops a drag onto the Cardio card from creating
+    // a treadmill scored in kilos, or a barbell with no weight column.
+    if (e.isCardio || m == Muscle.cardio) return;
     HapticFeedback.mediumImpact();
     final promoted = e.secondary.contains(m);
     await widget.store.setExerciseMuscles(
@@ -768,11 +772,28 @@ class _GroupPickSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Conditioning is not a filing decision — it follows from how the exercise
+    // is tracked, and a treadmill filed under Chest would be a state no other
+    // screen knows how to draw. So the sheet says so rather than offering
+    // thirteen wrong answers.
+    if (exercise.isCardio) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(2, 2, 2, 12),
+        child: Text(
+          '${exercise.name} is tracked as cardio, so it lives under '
+          'Conditioning. Change its tracking to file it under a muscle group.',
+          style: AppText.ui(size: 13.5, height: 1.45, color: AppColors.muted),
+        ),
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
-        MusclePicker(selected: {exercise.muscle}, onTap: onPick),
+        MusclePicker(
+            selected: {exercise.muscle},
+            onTap: onPick,
+            muscles: Muscle.trainable),
         const SizedBox(height: 8),
       ],
     );

@@ -454,7 +454,12 @@ class _RecordRow extends StatelessWidget {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  '${isBw ? '${best.reps} reps' : '${fmtW(best.weight)} kg × ${best.reps}'} · ${ArcData.relDate(best.date)}',
+                  // The distance the best pace was set over leads the cardio
+                  // line, and it is not decoration: the fastest block wins the
+                  // record, which will usually be the shortest one, and a
+                  // 200 m burst reading as a personal best with nothing beside
+                  // it would be a lie the row told by omission.
+                  '${ex.isCardio ? bestCardioContext(best, ex.cardio) : isBw ? '${best.reps} reps' : '${fmtW(best.weight)} kg × ${best.reps}'} · ${ArcData.relDate(best.date)}',
                   style: AppText.ui(
                       size: 12.5, weight: FontWeight.w500, color: AppColors.muted),
                 ),
@@ -475,12 +480,22 @@ class _RecordRow extends StatelessWidget {
                 FittedBox(
                   fit: BoxFit.scaleDown,
                   alignment: Alignment.centerRight,
-                  child: Text(isBw ? '${best.reps}' : ArcData.fmtScore(best.score),
+                  child: Text(
+                      ex.isCardio
+                          ? bestCardioValue(best, ex.cardio)
+                          : isBw
+                              ? '${best.reps}'
+                              : ArcData.fmtScore(best.score),
                       style: AppText.mono(
                           size: 22, weight: FontWeight.w700, height: 1)),
                 ),
                 const SizedBox(height: 1),
-                Text(isBw ? 'reps' : 'est. 1RM',
+                Text(
+                    ex.isCardio
+                        ? bestCardioUnit(ex.cardio)
+                        : isBw
+                            ? 'reps'
+                            : 'est. 1RM',
                     style: AppText.ui(
                         size: 10.5,
                         weight: FontWeight.w600,

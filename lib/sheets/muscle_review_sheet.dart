@@ -163,6 +163,10 @@ class _ReviewRow extends StatelessWidget {
               child: MusclePicker(
                 selected: {exercise.muscle},
                 onTap: onPick,
+                // The review card only ever holds lifts whose group Arc
+                // guessed. Cardio is never guessed, so Conditioning is never
+                // an answer here.
+                muscles: Muscle.trainable,
               ),
             ),
         ],

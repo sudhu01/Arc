@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import 'arc_data.dart';
+import 'cardio.dart';
 import 'companion_data.dart';
 import 'db/app_database.dart';
 import 'identity/identity_service.dart';
@@ -41,11 +42,19 @@ class DraftSet {
   /// sheet, so it's a mutable list rather than a replaced one.
   final List<DraftDrop> drops;
 
+  /// Cardio's three measures, mirroring [WorkoutSet]. Null on a strength set.
+  int? secs;
+  double? dist;
+  double? level;
+
   DraftSet({
     required this.weight,
     required this.reps,
     required this.id,
     List<DraftDrop>? drops,
+    this.secs,
+    this.dist,
+    this.level,
   }) : drops = drops ?? [];
 }
 
@@ -149,7 +158,7 @@ class ArcStore extends ChangeNotifier {
 
   void _recompute() {
     _records = ArcData.computeRecords(_sessions, _exercises);
-    _stats = ArcData.workoutStats(_sessions);
+    _stats = ArcData.workoutStats(_sessions, exById);
   }
 
   Exercise? exById(String id) {
@@ -178,11 +187,26 @@ class ArcStore extends ChangeNotifier {
     return null;
   }
 
+  /// The last set of the most recent session that trained [exId].
+  ///
+  /// What a new cardio set starts from. [bestSetFor] ranks by weight, which
+  /// every cardio set has none of — and "the same block I did last time" is a
+  /// better opening guess for a treadmill than any best ever is.
+  WorkoutSet? lastSetFor(String exId) {
+    for (final s in _sessions) {
+      for (final e in s.entries) {
+        if (e.exerciseId == exId && e.sets.isNotEmpty) return e.sets.last;
+      }
+    }
+    return null;
+  }
+
   Future<String> addExercise({
     required String name,
     required Muscle muscle,
     List<Muscle> secondary = const [],
     required String unit,
+    CardioKind? cardioKind,
   }) async {
     final id = ArcData.uid('ex');
     final ex = Exercise(
@@ -191,6 +215,7 @@ class ArcStore extends ChangeNotifier {
       muscle: muscle,
       secondary: secondary,
       unit: unit,
+      cardioKind: cardioKind,
     );
     await _db.upsertExercise(ex, _me);
     _exercises = [..._exercises, ex];
@@ -288,6 +313,9 @@ class ArcStore extends ChangeNotifier {
                             id: ArcData.uid('set'),
                             weight: s.weight,
                             reps: s.reps,
+                            secs: s.secs,
+                            dist: s.dist,
+                            level: s.level,
                             drops: s.drops
                                 .map((d) => SetDrop(
                                     id: ArcData.uid('drp'),
@@ -348,6 +376,10 @@ class ArcStore extends ChangeNotifier {
             weight: best.weight,
             reps: best.reps,
             unit: ex.unit,
+            secs: best.secs,
+            dist: best.dist,
+            level: best.level,
+            cardio: ex.isCardio ? ex.cardio.id : null,
           ),
         ));
       }

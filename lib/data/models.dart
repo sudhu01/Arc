@@ -1,6 +1,7 @@
 // Domain models for Arc — ported from arc-data.js.
 
 import '../notes/note_doc.dart';
+import 'cardio.dart';
 import 'muscle.dart';
 
 class Exercise {
@@ -16,7 +17,19 @@ class Exercise {
   /// discount — see [ArcData.muscleVolume].
   final List<Muscle> secondary;
 
-  final String unit; // 'kg' | 'bw'
+  /// What a set of this exercise is measured in: `'kg'` | `'bw'` | `'cardio'`.
+  ///
+  /// This is the polymorphism switch — it decides which measures a set carries,
+  /// which controls the log sheet draws, and which branch scores it. A value
+  /// this build does not know reads as weighted, which is the oldest behaviour
+  /// and the safest one.
+  final String unit;
+
+  /// Which cardio this is, and therefore what its third measure means. Null on
+  /// every non-cardio exercise, and on a cardio row written by a build or a
+  /// companion that predates the kinds — [cardio] resolves that to a sane
+  /// default rather than making callers check twice.
+  final CardioKind? cardioKind;
 
   /// False when [muscle] was guessed rather than chosen — either backfilled
   /// from the old Push/Pull/Legs/Core taxonomy or inferred from a companion's
@@ -29,10 +42,18 @@ class Exercise {
     required this.muscle,
     this.secondary = const [],
     required this.unit,
+    this.cardioKind,
     this.muscleConfirmed = true,
   });
 
   bool get isBodyweight => unit == 'bw';
+
+  bool get isCardio => unit == 'cardio';
+
+  /// The cardio kind to actually draw and score with. Only meaningful when
+  /// [isCardio]; falls back rather than throwing, so an unrecognised kind
+  /// degrades to time-and-distance instead of an empty screen.
+  CardioKind get cardio => cardioKind ?? CardioKind.fallback;
 
   /// The coarse movement pattern — Push | Pull | Legs | Core. Everything that
   /// predates the muscle taxonomy (session titles, calendar dots, the group
@@ -47,6 +68,8 @@ class Exercise {
     Muscle? muscle,
     List<Muscle>? secondary,
     String? unit,
+    CardioKind? cardioKind,
+    bool clearCardioKind = false,
     bool? muscleConfirmed,
   }) =>
       Exercise(
@@ -55,6 +78,7 @@ class Exercise {
         muscle: muscle ?? this.muscle,
         secondary: secondary ?? this.secondary,
         unit: unit ?? this.unit,
+        cardioKind: clearCardioKind ? null : (cardioKind ?? this.cardioKind),
         muscleConfirmed: muscleConfirmed ?? this.muscleConfirmed,
       );
 }
@@ -83,19 +107,53 @@ class WorkoutSet {
   /// drops are fatigue work, not a strength test.
   final List<SetDrop> drops;
 
+  /// How long the effort lasted, in seconds. Null on every strength set.
+  ///
+  /// Cardio's three measures live beside [weight] and [reps] rather than
+  /// overloading them. Two slots cannot hold three numbers, `reps` cannot be
+  /// zero, and `e1rm` returns 0 for any set with no weight — an overload would
+  /// have scored every run as nothing and rendered nonsense on the share card.
+  final int? secs;
+
+  /// Ground covered, in metres — or floors climbed on a stepmill. Always
+  /// stored in metres however the control chose to display it.
+  final double? dist;
+
+  /// The machine's intensity dial: incline %, resistance, or level, per the
+  /// exercise's [CardioKind]. Only incline is a real load; see [gradeFactor].
+  final double? level;
+
   const WorkoutSet({
     required this.id,
     required this.weight,
     required this.reps,
     this.drops = const [],
+    this.secs,
+    this.dist,
+    this.level,
   });
 
-  WorkoutSet copyWith({double? weight, int? reps, List<SetDrop>? drops}) =>
+  /// Whether this set carries a usable cardio effort. Both measures have to be
+  /// present: a duration with no distance cannot be paced, and a distance with
+  /// no duration is not a performance.
+  bool get hasCardio => (secs ?? 0) > 0 && (dist ?? 0) > 0;
+
+  WorkoutSet copyWith({
+    double? weight,
+    int? reps,
+    List<SetDrop>? drops,
+    int? secs,
+    double? dist,
+    double? level,
+  }) =>
       WorkoutSet(
         id: id,
         weight: weight ?? this.weight,
         reps: reps ?? this.reps,
         drops: drops ?? this.drops,
+        secs: secs ?? this.secs,
+        dist: dist ?? this.dist,
+        level: level ?? this.level,
       );
 }
 
@@ -194,6 +252,22 @@ class RecordPoint {
   /// top-scoring set.
   final int sets;
 
+  /// The cardio measures of the top-scoring set, mirroring [WorkoutSet]. Null
+  /// on every strength record.
+  ///
+  /// Carried on the point rather than looked up again because the record row
+  /// shows the distance beside the pace, and it has to be the distance that
+  /// *earned* the pace — a 30-second burst and a 5 km run read very differently
+  /// at the same number, and without the context the burst would masquerade as
+  /// the better run.
+  final int? secs;
+  final double? dist;
+  final double? level;
+
+  /// Total seconds of cardio on this exercise that session — the volume figure,
+  /// the way [sets] is for lifting.
+  final int? totalSecs;
+
   const RecordPoint({
     required this.date,
     required this.score,
@@ -201,6 +275,10 @@ class RecordPoint {
     required this.maxWeight,
     required this.reps,
     required this.sets,
+    this.secs,
+    this.dist,
+    this.level,
+    this.totalSecs,
   });
 }
 
@@ -220,11 +298,16 @@ class WorkoutStats {
   final int thisWeek;
   final int setsThisWeek;
 
+  /// Seconds of conditioning in the last seven days. Zero for a user who has
+  /// never logged cardio, which is what keeps it out of their dashboard.
+  final int cardioSecsThisWeek;
+
   const WorkoutStats({
     required this.total,
     required this.totalSets,
     required this.thisWeek,
     required this.setsThisWeek,
+    this.cardioSecsThisWeek = 0,
   });
 }
 

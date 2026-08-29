@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../data/cardio.dart';
 import '../data/arc_data.dart';
 import '../data/models.dart';
 import '../theme/app_theme.dart';
@@ -118,8 +119,12 @@ class ShareWorkoutCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final totalSets = session.entries.fold<int>(0, (a, e) => a + e.sets.length);
-    final meta = '$totalSets ${totalSets == 1 ? 'set' : 'sets'}';
+    final totalSets = ArcData.strengthSets([session], exById);
+    final cardioSecs = ArcData.cardioSeconds([session], exById);
+    final meta = [
+      if (totalSets > 0) '$totalSets ${totalSets == 1 ? 'set' : 'sets'}',
+      if (cardioSecs > 0) '${(cardioSecs / 60).round()} min',
+    ].join(' · ');
 
     final year = ArcData.parseISO(session.date).year;
     final eyebrow = '${ArcData.fmtDate(session.date, 'long')} $year';
@@ -535,6 +540,32 @@ class _Fitter {
           drops: [for (final d in s.drops) _seg(it.ex, d.weight, d.reps)],
           tail: tail,
         );
+
+    // A cardio block is one string with no drops and nothing to group — two
+    // twenty-minute blocks at different paces are not a repeated set. At the
+    // tightest density the card keeps the fastest block and counts the rest,
+    // which is the same trick the summary density plays on lifts.
+    if (it.ex.isCardio) {
+      final kind = it.ex.cardio;
+      _Chip cardioChip(WorkoutSet s, {String? tail}) => (
+            head: cardioSetLine(s.secs, s.dist, s.level, kind),
+            drops: const <String>[],
+            tail: tail,
+          );
+      if (density != _Density.summary) {
+        return [for (final s in sets) cardioChip(s)];
+      }
+      var top = sets.first;
+      for (final s in sets) {
+        if (ArcData.cardioScore(it.ex, s) > ArcData.cardioScore(it.ex, top)) {
+          top = s;
+        }
+      }
+      return [
+        cardioChip(top,
+            tail: sets.length > 1 ? '· ${sets.length} blocks' : null),
+      ];
+    }
 
     switch (density) {
       case _Density.detail:

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../data/cardio.dart';
 import '../data/arc_data.dart';
 import '../data/companion_data.dart';
 import '../data/models.dart';
@@ -32,6 +33,13 @@ String workoutAsText({
 
     body..add('')..add(ex.name);
     for (final s in e.sets) {
+      if (ex.isCardio) {
+        // Pace is carried here but not on the chips: pasted into a message it
+        // is the number the reader wants, and there is no width to fight over.
+        body.add(
+            '  ${cardioSetLine(s.secs, s.dist, s.level, ex.cardio, withRate: true)}');
+        continue;
+      }
       body.add('  ${[
         seg(s.weight, s.reps),
         for (final d in s.drops) seg(d.weight, d.reps),
@@ -127,8 +135,11 @@ class DayDetailSheet extends StatelessWidget {
       );
     }
 
-    final totalSets =
-        ses.entries.fold<int>(0, (a, e) => a + e.sets.length);
+    // Conditioning is counted in minutes, not sets — a twenty-minute treadmill
+    // block is not "one set", and folding it in would make a run look like the
+    // lightest thing in the workout.
+    final totalSets = ArcData.strengthSets([ses], exById);
+    final cardioSecs = ArcData.cardioSeconds([ses], exById);
 
     Future<void> delete() async {
       final ok = await showArcConfirm(
@@ -151,7 +162,8 @@ class DayDetailSheet extends StatelessWidget {
     // alone, which is exactly what red/green vision can't read.
     final meta = [
       if (ses.name != null) group,
-      '$totalSets ${totalSets == 1 ? 'set' : 'sets'}',
+      if (totalSets > 0) '$totalSets ${totalSets == 1 ? 'set' : 'sets'}',
+      if (cardioSecs > 0) '${(cardioSecs / 60).round()} min',
     ].join(' · ');
 
     return Column(
@@ -318,7 +330,7 @@ class _EntryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isBw = exercise.unit == 'bw';
+    final isBw = exercise.isBodyweight;
     final card = Container(
       padding: const EdgeInsets.fromLTRB(15, 13, 15, 13),
       decoration: BoxDecoration(
@@ -362,6 +374,30 @@ class _EntryCard extends StatelessWidget {
   Widget _setChip(dynamic s, bool isBw) {
     String seg(double weight, int reps) =>
         isBw ? '$reps reps' : '${fmtW(weight)} × $reps';
+
+    // A cardio block has no drops and no second segment — the whole block is
+    // one string, in the same chip the sets wear so a mixed day reads as one
+    // list rather than two.
+    if (exercise.isCardio) {
+      final kind = exercise.cardio;
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+        decoration: BoxDecoration(
+          color: AppColors.surface2,
+          borderRadius: AppRadii.rSm,
+        ),
+        child: Semantics(
+          label: spokenCardioSet(
+              s.secs as int?, s.dist as double?, s.level as double?, kind),
+          excludeSemantics: true,
+          child: Text(
+            cardioSetLine(
+                s.secs as int?, s.dist as double?, s.level as double?, kind),
+            style: AppText.mono(size: 13.5, weight: FontWeight.w600),
+          ),
+        ),
+      );
+    }
 
     final drops = (s.drops as List?) ?? const [];
     final main = seg(s.weight as double, s.reps as int);

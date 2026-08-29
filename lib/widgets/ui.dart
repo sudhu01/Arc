@@ -3,6 +3,7 @@ import 'dart:math' show max, pi, sin;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../data/cardio.dart';
 import '../data/arc_data.dart';
 import '../data/muscle.dart';
 import '../theme/app_theme.dart';
@@ -684,6 +685,150 @@ class _ArcStepperState extends State<ArcStepper> {
   }
 }
 
+/// A duration stepper, in the shape of [ArcStepper].
+///
+/// Cardio needs one because [ArcStepper] cannot show `m:ss` and decimal minutes
+/// are the wrong register for a 12-second sprint repeat — "0.2 min" is not a
+/// number anybody times themselves in.
+///
+/// Two things make one control serve both a sprint and an hour on a treadmill:
+/// the step scales with the value ([durationStep] — five seconds under a
+/// minute, a minute over ten), and a double-tap types over it, accepting
+/// `12`, `1:47` or `30:00` alike. Same box, same 38×46 buttons, same mono
+/// numeral as every other stepper in the app.
+class ArcTimeStepper extends StatefulWidget {
+  final int seconds;
+  final ValueChanged<int> onChanged;
+  final int max;
+
+  const ArcTimeStepper({
+    super.key,
+    required this.seconds,
+    required this.onChanged,
+    this.max = 86340, // 23:59:00 — a duration, not a date
+  });
+
+  @override
+  State<ArcTimeStepper> createState() => _ArcTimeStepperState();
+}
+
+class _ArcTimeStepperState extends State<ArcTimeStepper> {
+  final _controller = TextEditingController();
+  final _focus = FocusNode();
+  bool _editing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _focus.addListener(() {
+      if (!_focus.hasFocus) _commit();
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focus.dispose();
+    super.dispose();
+  }
+
+  void _set(int v) => widget.onChanged(v.clamp(0, widget.max));
+
+  /// Stepping down uses the step for the value we are landing *near*, not the
+  /// one we are leaving — otherwise 60 s steps down by 30 to 30 and then needs
+  /// two more presses to clear a minute, and the control feels sticky at every
+  /// boundary.
+  void _bump(int direction) {
+    final v = widget.seconds;
+    final step = direction > 0 ? durationStep(v) : durationStep(v - 1);
+    _set(v + step * direction);
+  }
+
+  void _startEditing() {
+    _controller.text = formatDuration(widget.seconds);
+    _controller.selection =
+        TextSelection(baseOffset: 0, extentOffset: _controller.text.length);
+    setState(() => _editing = true);
+    _focus.requestFocus();
+  }
+
+  void _commit() {
+    if (!_editing) return;
+    final parsed = parseDuration(_controller.text);
+    if (parsed != null) _set(parsed);
+    setState(() => _editing = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    Widget btn(String icon, VoidCallback onTap, String label) => Semantics(
+          button: true,
+          label: label,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(8),
+            child: SizedBox(
+              width: 38,
+              height: 46,
+              child: Icon(ArcIcons.byName(icon), size: 18, color: AppColors.ink),
+            ),
+          ),
+        );
+
+    Widget center;
+    if (_editing) {
+      center = TextField(
+        controller: _controller,
+        focusNode: _focus,
+        textAlign: TextAlign.center,
+        keyboardType: TextInputType.datetime,
+        cursorColor: AppColors.accentStrong,
+        onSubmitted: (_) => _commit(),
+        onTapOutside: (_) => _focus.unfocus(),
+        style: AppText.mono(size: 19, weight: FontWeight.w600),
+        decoration: const InputDecoration(
+          isCollapsed: true,
+          contentPadding: EdgeInsets.symmetric(vertical: 14),
+          border: InputBorder.none,
+        ),
+      );
+    } else {
+      center = GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onDoubleTap: _startEditing,
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            formatDuration(widget.seconds),
+            style: AppText.mono(size: 19, weight: FontWeight.w600),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface2,
+        borderRadius: AppRadii.rMd,
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Row(
+        children: [
+          btn('minus', () => _bump(-1), 'Less time'),
+          Expanded(
+            child: Semantics(
+              label: 'Duration',
+              value: spokenDuration(widget.seconds),
+              child: center,
+            ),
+          ),
+          btn('plus', () => _bump(1), 'More time'),
+        ],
+      ),
+    );
+  }
+}
+
 /// Allows only numeric input with at most [decimals] digits after a single
 /// decimal point (e.g. "62.5"). When [decimals] is 0, only whole numbers pass.
 class _DecimalInputFormatter extends TextInputFormatter {
@@ -714,22 +859,44 @@ class GroupDot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: AppColors.group(group),
-        shape: BoxShape.circle,
-      ),
+    return _Dot(
+      color: AppColors.group(group),
+      size: size,
+      hollow: group == MuscleRegion.cardio,
     );
   }
 }
 
-/// Muscle-group colour dot — the user's colour for one of the thirteen groups.
+/// Muscle-group colour dot — the user's colour for one of the thirteen groups,
+/// or the conditioning **ring**.
+///
+/// Conditioning is drawn hollow, and that is not decoration. Arc's rule is that
+/// group identity is never carried by colour alone (PRODUCT's accessibility
+/// section), and every group dot is pinned to one lightness so no colour can
+/// outrank another — which means a fourteenth colour would be the *only* thing
+/// separating a run from a body part. A ring separates them by form: it holds
+/// up at 6px in a calendar cell, survives greyscale and every colour-vision
+/// deficiency, and tells a mixed day (filled dots *and* a ring) from a pure
+/// conditioning one at a glance. A loop is also simply the right shape for laps.
 class MuscleDot extends StatelessWidget {
   final Muscle muscle;
   final double size;
   const MuscleDot(this.muscle, {super.key, this.size = 9});
+
+  @override
+  Widget build(BuildContext context) => _Dot(
+        color: MusclePalette.of(muscle),
+        size: size,
+        hollow: muscle == Muscle.cardio,
+      );
+}
+
+class _Dot extends StatelessWidget {
+  const _Dot({required this.color, required this.size, required this.hollow});
+
+  final Color color;
+  final double size;
+  final bool hollow;
 
   @override
   Widget build(BuildContext context) {
@@ -737,8 +904,15 @@ class MuscleDot extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: MusclePalette.of(muscle),
+        color: hollow ? null : color,
         shape: BoxShape.circle,
+        // Scaled rather than fixed: a 1px ring vanishes at 6px in the calendar
+        // and reads as a hairline at 14px in the palette sheet. A quarter of
+        // the diameter keeps the same weight at every size Arc draws it, and
+        // floors at 1.2 so it never falls under a physical pixel.
+        border: hollow
+            ? Border.all(color: color, width: max(1.2, size * 0.25))
+            : null,
       ),
     );
   }

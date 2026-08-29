@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import '../data/cardio.dart';
 import '../data/arc_data.dart';
 import '../data/models.dart';
 import '../data/store.dart';
@@ -23,6 +24,10 @@ class Dashboard extends StatefulWidget {
 
 class _DashboardState extends State<Dashboard> {
   String? _sel;
+
+  /// Which conditioning exercise the card below is showing. Null follows the
+  /// most recently trained one, which is right until the user says otherwise.
+  String? _cardioSel;
   final _searchCtl = TextEditingController();
   final _searchFocus = FocusNode();
   String _query = '';
@@ -50,8 +55,14 @@ class _DashboardState extends State<Dashboard> {
 
     // Exercises the user has actually logged, ranked so the heaviest 1RM
     // surfaces first; bodyweight lifts (no 1RM) sort to the back.
+    //
+    // Conditioning is not in here. Its score is a speed in metres per second,
+    // and a card headed "Strength progress" that offered to plot one against a
+    // column labelled "kg est. 1RM" would be quoting the right number under the
+    // wrong name. It gets its own card below.
     final logged = exercises
-        .where((e) => records[e.id]?.history.isNotEmpty ?? false)
+        .where((e) =>
+            !e.isCardio && (records[e.id]?.history.isNotEmpty ?? false))
         .toList()
       ..sort((a, b) {
         final byUnit =
@@ -70,6 +81,20 @@ class _DashboardState extends State<Dashboard> {
     final selDelta = selHist.length > 1
         ? selHist[selHist.length - 1].score - selHist[selHist.length - 2].score
         : 0;
+
+    // Conditioning, most recently trained first — the machine you were on
+    // yesterday is the one you want to see when you open Arc today.
+    final cardioLogged = exercises
+        .where((e) => e.isCardio && (records[e.id]?.history.isNotEmpty ?? false))
+        .toList()
+      ..sort((a, b) => records[b.id]!.history.last.date
+          .compareTo(records[a.id]!.history.last.date));
+    final cardioSel =
+        cardioLogged.any((e) => e.id == _cardioSel) ? _cardioSel : null;
+    final cardioEx = cardioLogged.isEmpty
+        ? null
+        : cardioLogged.firstWhere((e) => e.id == cardioSel,
+            orElse: () => cardioLogged.first);
 
     final query = _query.trim().toLowerCase();
     final results = query.isEmpty
@@ -135,8 +160,17 @@ class _DashboardState extends State<Dashboard> {
           children: [
             StatTile(label: 'This week', value: '${stats.thisWeek}', unit: 'workouts'),
             const SizedBox(width: 10),
+            // Conditioning rides the sets tile's sub line rather than taking a
+            // third tile. `StatTile`'s value is mono 22 with no `FittedBox`, so
+            // three across would crowd at large text scale — and the user who
+            // has never logged a run never sees the line at all.
             StatTile(
-                label: 'This week', value: '${stats.setsThisWeek}', unit: 'sets'),
+                label: 'This week',
+                value: '${stats.setsThisWeek}',
+                unit: 'sets',
+                sub: stats.cardioSecsThisWeek > 0
+                    ? '+ ${(stats.cardioSecsThisWeek / 60).round()} min conditioning'
+                    : null),
           ],
         ),
         const SizedBox(height: 24),
@@ -210,6 +244,10 @@ class _DashboardState extends State<Dashboard> {
             ],
           ),
         ),
+        if (cardioEx != null) ...[
+          const SizedBox(height: 16),
+          _cardioCard(context, cardioEx, cardioLogged, records[cardioEx.id]!),
+        ],
         const SizedBox(height: 24),
 
         // PRs
@@ -417,6 +455,131 @@ class _DashboardState extends State<Dashboard> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// Conditioning, as its own card beside Strength progress.
+  ///
+  /// No search field: a lifting library runs to dozens of exercises, a cardio
+  /// one to the two or three machines the gym has. Naming them outright is
+  /// faster than typing, and it doubles as the list of what is being tracked.
+  ///
+  /// The chart plots **pace**, so it falls as the runner gets faster. That is
+  /// the right way round — it is the shape a pace is, and the delta beside it
+  /// flips its arrow to match so a falling line still reads as the win it is.
+  Widget _cardioCard(
+    BuildContext context,
+    Exercise ex,
+    List<Exercise> all,
+    ExerciseRecord rec,
+  ) {
+    final kind = ex.cardio;
+    final hist = rec.history;
+    final floors = kind.countsFloors;
+
+    double value(RecordPoint h) => floors
+        ? ((h.secs ?? 0) <= 0 ? 0 : (h.dist ?? 0) / (h.secs! / 60))
+        : ((h.dist ?? 0) <= 0 || (h.secs ?? 0) <= 0
+            ? 0
+            : h.secs! / (h.dist! / 1000));
+
+    final delta = hist.length < 2
+        ? 0.0
+        : floors
+            ? value(hist.last) - value(hist[hist.length - 2])
+            : value(hist[hist.length - 2]) - value(hist.last);
+
+    return ArcCard(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+      onTap: () => Sheets.openPR(context, ex.id),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              ArcIcon('run', size: 17, color: AppColors.accentStrong),
+              const SizedBox(width: 7),
+              Text('Conditioning',
+                  style: AppText.ui(size: 15, weight: FontWeight.w700)),
+              const Spacer(),
+              ArcIcon('chevR', size: 18, color: AppColors.faint),
+            ],
+          ),
+          // Only worth drawing when there is a choice to make.
+          if (all.length > 1) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final c in all)
+                  _CardioPill(
+                    label: c.name,
+                    selected: c.id == ex.id,
+                    onTap: () => setState(() => _cardioSel = c.id),
+                  ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Text(bestCardioValue(rec.best!, kind),
+                          style: AppText.mono(
+                              size: 34, weight: FontWeight.w700, height: 1)),
+                      const SizedBox(width: 8),
+                      Text(floors ? 'floors/min best' : 'best /km',
+                          style: AppText.ui(
+                              size: 14,
+                              weight: FontWeight.w600,
+                              color: AppColors.muted)),
+                    ],
+                  ),
+                ),
+              ),
+              if (delta > 0) ...[
+                const SizedBox(width: 8),
+                ArcIcon(floors ? 'arrowUp' : 'arrowDown',
+                    size: 13, color: AppColors.up),
+                const SizedBox(width: 3),
+                Text(
+                    floors
+                        ? '+${delta.toStringAsFixed(1)}'
+                        : '−${formatDuration(delta.round())}',
+                    style: AppText.ui(
+                        size: 13, weight: FontWeight.w700, color: AppColors.up)),
+              ],
+            ],
+          ),
+          const SizedBox(height: 8),
+          Semantics(
+            label: '${ex.name} pace over ${hist.length} '
+                '${hist.length == 1 ? 'session' : 'sessions'}. '
+                'Best ${bestCardioValue(rec.best!, kind)}'
+                '${floors ? ' floors per minute' : ' per kilometre'}'
+                '${delta > 0 ? ', improving' : ''}.',
+            excludeSemantics: true,
+            child: ProgressChart(
+              points: [
+                for (final h in hist)
+                  ProgressPoint(ArcData.parseISO(h.date), value(h)),
+              ],
+              unit: floors ? 'floors/min' : 'min/km',
+              formatValue:
+                  floors ? null : (v) => formatDuration(v.round()),
+              height: 140,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -653,6 +816,65 @@ class _RecentRow extends StatelessWidget {
               style: AppText.ui(
                   size: 10.5, weight: FontWeight.w600, color: AppColors.faint)),
         ],
+      ),
+    );
+  }
+}
+
+/// One machine, as a selectable pill on the Conditioning card.
+///
+/// Selected fills with ink rather than the accent — the same rule the muscle
+/// picker and the records filter follow. On a card whose point is the number
+/// and the trend line, a wall of volt would be the loudest thing on it and the
+/// least informative.
+class _CardioPill extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _CardioPill({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: label,
+      onTap: onTap,
+      child: ExcludeSemantics(
+        child: GestureDetector(
+          onTap: () {
+            HapticFeedback.selectionClick();
+            onTap();
+          },
+          behavior: HitTestBehavior.opaque,
+          child: Container(
+            // The 44 floor everything tappable in Arc holds to.
+            constraints: const BoxConstraints(minHeight: 44),
+            alignment: Alignment.center,
+            padding: const EdgeInsets.symmetric(horizontal: 13),
+            decoration: BoxDecoration(
+              color: selected ? AppColors.ink : AppColors.surface2,
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(
+                  color: selected ? AppColors.ink : AppColors.line),
+            ),
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppText.ui(
+                size: 13.5,
+                weight: FontWeight.w600,
+                color: selected ? AppColors.surface : AppColors.ink,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

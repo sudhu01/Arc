@@ -13,6 +13,7 @@
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
+import '../cardio.dart';
 import '../models.dart';
 import '../muscle.dart';
 import '../muscle_map.dart';
@@ -23,7 +24,7 @@ class AppDatabase {
   final Database db;
 
   static const _dbName = 'arc.db';
-  static const _version = 8;
+  static const _version = 9;
 
   /// Open the database. [factory] and [path] are injectable so tests can run
   /// against an in-memory sqflite_common_ffi database.
@@ -112,6 +113,20 @@ class AppDatabase {
     // reads the session exactly as it did before.
     if (oldVersion < 8) {
       await db.execute('ALTER TABLE sessions ADD COLUMN notes TEXT');
+    }
+    // v9: cardio. Three measures on a set and the kind on its exercise, all
+    // nullable, so every existing row is already correct and there is nothing
+    // to backfill — a weight/rep set simply has no duration, which is true.
+    //
+    // They sit beside `weight`/`reps` rather than overloading them: there are
+    // three of them, `reps` is never zero, and `e1rm` scores a weightless set
+    // at nothing, so an overload would have quietly rendered every run as a
+    // 0 kg lift on the share card and in the sync payload.
+    if (oldVersion < 9) {
+      await db.execute('ALTER TABLE sets ADD COLUMN secs INTEGER');
+      await db.execute('ALTER TABLE sets ADD COLUMN dist REAL');
+      await db.execute('ALTER TABLE sets ADD COLUMN level REAL');
+      await db.execute('ALTER TABLE exercises ADD COLUMN cardio_kind TEXT');
     }
   }
 
@@ -237,7 +252,10 @@ class AppDatabase {
         muscle       TEXT,                      -- primary group, e.g. 'chest'
         secondary    TEXT NOT NULL DEFAULT '',  -- csv, e.g. 'triceps,shoulders'
         muscle_confirmed INTEGER NOT NULL DEFAULT 0,
-        unit         TEXT NOT NULL,             -- kg | bw
+        unit         TEXT NOT NULL,             -- kg | bw | cardio
+        -- run | machine | climb | open. Null on everything that isn't cardio,
+        -- and on a cardio row from a peer that predates the kinds.
+        cardio_kind  TEXT,
         owner_id     TEXT NOT NULL,
         updated_at   INTEGER NOT NULL,
         deleted      INTEGER NOT NULL DEFAULT 0,
@@ -281,6 +299,11 @@ class AppDatabase {
         entry_id  TEXT NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
         weight    REAL NOT NULL,
         reps      INTEGER NOT NULL,
+        -- Cardio's three measures. Null on every strength set; see the v9
+        -- migration for why they are not folded into weight/reps.
+        secs      INTEGER,                      -- duration, seconds
+        dist      REAL,                         -- metres, or floors on a stepmill
+        level     REAL,                         -- incline % | resistance | level
         position  INTEGER NOT NULL,
         owner_id  TEXT NOT NULL
       )
@@ -453,6 +476,7 @@ class AppDatabase {
         'secondary': Muscle.encodeList(ex.secondary),
         'muscle_confirmed': ex.muscleConfirmed ? 1 : 0,
         'unit': ex.unit,
+        'cardio_kind': ex.cardioKind?.id,
         'owner_id': ownerId,
         'updated_at': DateTime.now().millisecondsSinceEpoch,
         'deleted': 0,
@@ -481,8 +505,22 @@ class AppDatabase {
   /// does — name first, coarse region as the fallback — and mark it unconfirmed.
   Exercise _exerciseFromRow(Map<String, Object?> r) {
     final name = r['name'] as String;
+    final unit = r['unit'] as String;
+    final kind = CardioKind.fromId(r['cardio_kind'] as String?);
     final stored = Muscle.fromId(r['muscle'] as String?);
     if (stored == null) {
+      // A cardio row from a peer that predates the taxonomy has no muscle to
+      // read, and the name dictionary would file it under a body part. It is
+      // conditioning by definition, and confidently so.
+      if (unit == 'cardio') {
+        return Exercise(
+          id: r['id'] as String,
+          name: name,
+          muscle: Muscle.cardio,
+          unit: unit,
+          cardioKind: kind,
+        );
+      }
       final guess =
           MuscleMap.resolve(name, region: r['muscle_group'] as String?);
       return Exercise(
@@ -490,7 +528,7 @@ class AppDatabase {
         name: name,
         muscle: guess.primary,
         secondary: guess.secondary,
-        unit: r['unit'] as String,
+        unit: unit,
         muscleConfirmed: false,
       );
     }
@@ -499,7 +537,8 @@ class AppDatabase {
       name: name,
       muscle: stored,
       secondary: Muscle.parseList(r['secondary'] as String?),
-      unit: r['unit'] as String,
+      unit: unit,
+      cardioKind: kind,
       muscleConfirmed: (r['muscle_confirmed'] as int? ?? 0) == 1,
     );
   }
@@ -551,6 +590,9 @@ class AppDatabase {
         weight: (s['weight'] as num).toDouble(),
         reps: s['reps'] as int,
         drops: dropsBySet[id] ?? const [],
+        secs: s['secs'] as int?,
+        dist: (s['dist'] as num?)?.toDouble(),
+        level: (s['level'] as num?)?.toDouble(),
       ));
     }
 
@@ -613,6 +655,9 @@ class AppDatabase {
             'entry_id': e.id,
             'weight': set.weight,
             'reps': set.reps,
+            'secs': set.secs,
+            'dist': set.dist,
+            'level': set.level,
             'position': si,
             'owner_id': ownerId,
           });
@@ -696,10 +741,16 @@ class AppDatabase {
     // `muscle` is absent from anything a pre-v6 peer sends; fall back to the
     // dictionary over the name, using their coarse `group` as the tiebreak.
     final name = (p['name'] as String?) ?? '';
+    final unit = (p['unit'] as String?) ?? 'kg';
     final sent = Muscle.fromId(p['muscle'] as String?);
-    final MuscleGuess resolved = sent != null
-        ? MuscleGuess(sent, secondary: Muscle.parseList(p['secondary'] as String?))
-        : MuscleMap.resolve(name, region: p['group'] as String?);
+    // Conditioning is never a body part, so a cardio row settles its own group
+    // regardless of what the peer sent or what the name dictionary would guess.
+    final MuscleGuess resolved = unit == 'cardio'
+        ? const MuscleGuess(Muscle.cardio)
+        : sent != null
+            ? MuscleGuess(sent,
+                secondary: Muscle.parseList(p['secondary'] as String?))
+            : MuscleMap.resolve(name, region: p['group'] as String?);
     final muscle = resolved.primary;
 
     await db.insert(
@@ -713,7 +764,10 @@ class AppDatabase {
         // A companion's library isn't ours to tidy — never surface their rows
         // in our review card, whichever way we resolved the group.
         'muscle_confirmed': 1,
-        'unit': p['unit'] ?? 'kg',
+        'unit': unit,
+        // Absent from a peer that predates cardio, and from every non-cardio
+        // row. `Exercise.cardio` falls back rather than making callers check.
+        'cardio_kind': CardioKind.fromId(p['cardio'] as String?)?.id,
         'owner_id': ownerId,
         'updated_at': updatedAt,
         'deleted': deleted ? 1 : 0,
@@ -771,6 +825,11 @@ class AppDatabase {
             'entry_id': eid,
             'weight': (s['weight'] as num).toDouble(),
             'reps': s['reps'],
+            // Absent on payloads from a build that predates cardio; those sets
+            // arrive as the plain weight/rep sets they always were.
+            'secs': (s['secs'] as num?)?.round(),
+            'dist': (s['dist'] as num?)?.toDouble(),
+            'level': (s['level'] as num?)?.toDouble(),
             'position': si,
             'owner_id': ownerId,
           });

@@ -15,6 +15,7 @@
 // ordered specific → general for exactly that reason; adding a short pattern
 // near the top of a block is how you silently break the ones under it.
 
+import 'cardio.dart';
 import 'muscle.dart';
 
 /// What the dictionary thinks an exercise trains.
@@ -66,10 +67,31 @@ class MuscleMap {
   static MuscleGuess? guess(String name) {
     final n = _normalize(name);
     if (n.squashed.isEmpty) return null;
+    // Conditioning is settled first and settles absolutely: a treadmill is not
+    // a body part, and letting the muscle rules see the name at all would file
+    // "Row Erg" under Lats.
+    if (_cardioKind(n) != null) return const MuscleGuess(Muscle.cardio);
     for (final r in _rules) {
       if (n.hasPatternAtWordStart(r.pattern)) {
         return MuscleGuess(r.primary, secondary: r.secondary);
       }
+    }
+    return null;
+  }
+
+  /// Which cardio [name] reads as, or null if it does not read as cardio.
+  ///
+  /// Drives the new-exercise form: typing "Treadmill" selects Cardio and Run
+  /// before the user reaches either control, the same way typing "Bench Press"
+  /// already selects Chest.
+  static CardioKind? cardioGuess(String name) {
+    final n = _normalize(name);
+    return n.squashed.isEmpty ? null : _cardioKind(n);
+  }
+
+  static CardioKind? _cardioKind(_Norm n) {
+    for (final (pattern, kind) in _cardioRules) {
+      if (n.hasPatternAtWordStart(pattern)) return kind;
     }
     return null;
   }
@@ -106,6 +128,58 @@ class MuscleMap {
         MuscleRegion.defaultMuscle(region ?? MuscleRegion.push),
         confident: false,
       );
+
+  // ── The conditioning dictionary ───────────────────────────────────────
+  //
+  // Equipment before activity, because the equipment is the more specific
+  // claim: "Bike Sprints" is a bike, not a track session.
+  //
+  // Two absences are deliberate and load-bearing. There is **no bare `row`
+  // rule** — "Barbell Row" and "Seated Row" are Pull, and a cardio `row` would
+  // outrank both from up here. And there is **no bare `walk` rule**, because
+  // "Farmer's Walk" and "Walking Lunge" are not conditioning. The erg and the
+  // treadmill are named explicitly instead.
+  static const List<(String, CardioKind)> _cardioRules = [
+    // Equipment.
+    ('treadmill', CardioKind.run),
+    ('elliptical', CardioKind.machine),
+    ('crosstrainer', CardioKind.machine),
+    ('arctrainer', CardioKind.machine),
+    ('assaultbike', CardioKind.machine),
+    ('airbike', CardioKind.machine),
+    ('echobike', CardioKind.machine),
+    ('fanbike', CardioKind.machine),
+    ('spinbike', CardioKind.machine),
+    ('stationarybike', CardioKind.machine),
+    ('exercisebike', CardioKind.machine),
+    ('handbike', CardioKind.machine),
+    ('bike', CardioKind.machine),
+    ('cycling', CardioKind.machine),
+    ('spinning', CardioKind.machine),
+    ('rowerg', CardioKind.machine),
+    ('rowingmachine', CardioKind.machine),
+    ('concept2', CardioKind.machine),
+    ('skierg', CardioKind.machine),
+    ('erg', CardioKind.machine),
+    ('stairmaster', CardioKind.climb),
+    ('stairmill', CardioKind.climb),
+    ('stepmill', CardioKind.climb),
+    ('stairclimber', CardioKind.climb),
+    ('versaclimber', CardioKind.climb),
+    ('stair', CardioKind.climb),
+    ('jumprope', CardioKind.run),
+    ('battlerope', CardioKind.open),
+    ('skipping', CardioKind.open),
+    // Activity.
+    ('inclinewalk', CardioKind.run),
+    ('sprint', CardioKind.run),
+    ('jog', CardioKind.run),
+    ('marathon', CardioKind.run),
+    ('run', CardioKind.run),
+    ('swim', CardioKind.open),
+    ('ruck', CardioKind.open),
+    ('hike', CardioKind.open),
+  ];
 
   // ── The dictionary ────────────────────────────────────────────────────
   static const List<_Rule> _rules = [

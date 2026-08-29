@@ -48,6 +48,13 @@ class ArcIcons {
         return Icons.arrow_downward_rounded;
       case 'clock':
         return Icons.schedule_rounded;
+      // Conditioning. The runner reads as effort at every size Arc draws it,
+      // where a heart reads as health and a stopwatch reads as the rest timer
+      // this app already has one of.
+      case 'run':
+        return Icons.directions_run_rounded;
+      case 'route':
+        return Icons.route_rounded;
       // Rest timer transport. `replay` rather than a circular-arrow refresh:
       // reset puts the rest back to the top, it does not reload anything.
       case 'play':

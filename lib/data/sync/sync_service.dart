@@ -336,6 +336,11 @@ class SyncService {
           if ((ex['secondary'] as String?)?.isNotEmpty ?? false)
             'secondary': ex['secondary'],
           'unit': ex['unit'],
+          // Only on cardio rows, so every existing exercise's payload stays
+          // byte-identical to what earlier versions pushed. A peer without
+          // cardio drops the key and reads the row as a weighted lift, which
+          // is the safest thing it could do with an exercise it cannot draw.
+          if (ex['cardio_kind'] != null) 'cardio': ex['cardio_kind'],
         },
         'deleted': (ex['deleted'] as int) == 1,
         'updated_at': ex['updated_at'],
@@ -367,6 +372,14 @@ class SyncService {
               'id': set['id'],
               'weight': set['weight'],
               'reps': set['reps'],
+              // Same rule again: a strength set carries none of these, so its
+              // payload is unchanged. Nesting them inside the session subtree
+              // rather than minting a new `object_type` is what keeps the relay
+              // out of it — it stores this payload as an opaque blob, but its
+              // object types are a server-side whitelist.
+              if (set['secs'] != null) 'secs': set['secs'],
+              if (set['dist'] != null) 'dist': set['dist'],
+              if (set['level'] != null) 'level': set['level'],
             };
             // Only carried when the set actually has drops, so a plain set's
             // payload stays byte-identical to what earlier versions pushed.

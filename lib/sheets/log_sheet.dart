@@ -7,7 +7,9 @@ import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:provider/provider.dart';
+import '../data/cardio.dart';
 import '../data/arc_data.dart';
+import '../data/models.dart';
 import '../data/muscle.dart';
 import '../data/store.dart';
 import '../theme/app_theme.dart';
@@ -72,6 +74,9 @@ class _LogSheetState extends State<LogSheet> {
                           weight: s.weight,
                           reps: s.reps,
                           id: ArcData.uid('set'),
+                          secs: s.secs,
+                          dist: s.dist,
+                          level: s.level,
                           // Carried through, or re-saving an edited workout
                           // would write the set back without its drops.
                           drops: s.drops
@@ -108,10 +113,24 @@ class _LogSheetState extends State<LogSheet> {
   }
 
   DraftSet _makeSet(String exId) {
-    final best = store.bestSetFor(exId);
     final ex = store.exById(exId)!;
+    if (ex.isCardio) {
+      // The last block, not the best one: [bestSetFor] ranks by weight, which
+      // no cardio set has, and "the same twenty minutes I did on Tuesday" is a
+      // better opening guess than any personal best would be.
+      final last = store.lastSetFor(exId);
+      return DraftSet(
+        weight: 0,
+        reps: 0,
+        id: ArcData.uid('set'),
+        secs: last?.secs ?? 20 * 60,
+        dist: last?.dist ?? 0,
+        level: last?.level,
+      );
+    }
+    final best = store.bestSetFor(exId);
     return DraftSet(
-      weight: ex.unit == 'bw' ? 0 : (best?.weight ?? 45),
+      weight: ex.isBodyweight ? 0 : (best?.weight ?? 45),
       reps: best?.reps ?? 8,
       id: ArcData.uid('set'),
     );
@@ -552,13 +571,24 @@ class _LogSheetState extends State<LogSheet> {
   /// Today only. Filling in Tuesday's session on Thursday evening is editing a
   /// record, not resting between sets, and a two-minute alarm for it would be
   /// the timer talking over the user.
-  void _startRest() {
+  ///
+  /// [after] is the set that was just completed, when there is one. It only
+  /// matters for cardio: eight sprint repeats have real rest between them and
+  /// want the timer, but adding a second twenty-minute treadmill block does
+  /// not mean the user is now standing still. Anything at or under
+  /// [_restingCardio] reads as an interval; longer reads as a block, and the
+  /// timer stays quiet. Strength sets always rest.
+  static const _restingCardio = Duration(minutes: 3);
+
+  void _startRest({DraftSet? after}) {
     if (_draftDate != ArcData.iso(ArcData.today)) return;
+    final secs = after?.secs;
+    if (secs != null && secs > _restingCardio.inSeconds) return;
     context.read<TimerController>().autoStart();
   }
 
   void _addSet(DraftEntry e) {
-    _startRest();
+    _startRest(after: e.sets.isEmpty ? null : e.sets.last);
     setState(() {
       // e.sets can legitimately be empty — every set in the entry can be
       // deleted without deleting the entry itself.
@@ -567,7 +597,10 @@ class _LogSheetState extends State<LogSheet> {
           : DraftSet(
               weight: e.sets.last.weight,
               reps: e.sets.last.reps,
-              id: ArcData.uid('set')));
+              id: ArcData.uid('set'),
+              secs: e.sets.last.secs,
+              dist: e.sets.last.dist,
+              level: e.sets.last.level));
       _dropTarget.remove(e.id); // the new set becomes the drop target
     });
   }
@@ -597,9 +630,33 @@ class _LogSheetState extends State<LogSheet> {
     });
   }
 
+  /// Entries whose modifier column is showing. A cardio set carries incline or
+  /// resistance, but most of them carry zero of it — so the control stays
+  /// folded away until it has something to say, and eight sprint repeats stay
+  /// a dense list instead of eight double-height rows.
+  final Set<String> _modifierOpen = {};
+
+  /// Entries showing km/h instead of pace. Per entry, because a treadmill
+  /// console reads in speed and a runner thinks in pace, and which one you
+  /// want depends on the exercise rather than the app.
+  final Set<String> _showSpeed = {};
+
+  static String _kindIcon(CardioKind k) => switch (k) {
+        CardioKind.run => 'run',
+        CardioKind.machine => 'reset',
+        CardioKind.climb => 'trend',
+        CardioKind.open => 'route',
+      };
+
+  bool _modifierShown(DraftEntry e, CardioKind kind) =>
+      kind.hasModifier &&
+      (_modifierOpen.contains(e.id) ||
+          e.sets.any((s) => (s.level ?? 0) > 0));
+
   Widget _entryCard(DraftEntry e, int index) {
     final ex = store.exById(e.exerciseId)!;
-    final isBw = ex.unit == 'bw';
+    final isBw = ex.isBodyweight;
+    final isCardio = ex.isCardio;
     final picked = _picked == e.id;
 
     void remove() => setState(() {
@@ -639,6 +696,11 @@ class _LogSheetState extends State<LogSheet> {
               _entryHandle(e, index, ex.name),
               const SizedBox(width: 2),
               MuscleDot(ex.muscle),
+              if (isCardio) ...[
+                const SizedBox(width: 6),
+                ArcIcon(_kindIcon(ex.cardio),
+                    size: 14, color: AppColors.faint),
+              ],
               const SizedBox(width: 8),
               Expanded(
                 child: Text(ex.name,
@@ -693,20 +755,33 @@ class _LogSheetState extends State<LogSheet> {
                 left: _gutterW + _gutterGap, right: 34, bottom: 6),
             child: Row(
               children: [
-                if (!isBw) ...[
-                  Expanded(child: Center(child: _colHeader('WEIGHT'))),
+                if (isCardio) ...[
+                  Expanded(child: Center(child: _colHeader('TIME'))),
                   const SizedBox(width: 8),
+                  Expanded(
+                      child: Center(
+                          child: _colHeader(ex.cardio.countsFloors
+                              ? 'FLOORS'
+                              : 'DISTANCE'))),
+                ] else ...[
+                  if (!isBw) ...[
+                    Expanded(child: Center(child: _colHeader('WEIGHT'))),
+                    const SizedBox(width: 8),
+                  ],
+                  Expanded(child: Center(child: _colHeader('REPS'))),
                 ],
-                Expanded(child: Center(child: _colHeader('REPS'))),
               ],
             ),
           ),
           for (var i = 0; i < e.sets.length; i++) ...[
-            _setGroup(e, i, isBw),
+            if (isCardio)
+              _cardioGroup(e, i, ex)
+            else
+              _setGroup(e, i, isBw),
             if (i != e.sets.length - 1) const SizedBox(height: 8),
           ],
           SizedBox(height: e.sets.isEmpty ? 0 : 10),
-          _addControls(e, isBw),
+          _addControls(e, isBw, isCardio: isCardio, kind: ex.cardio),
         ],
       ),
     );
@@ -927,6 +1002,168 @@ class _LogSheetState extends State<LogSheet> {
     );
   }
 
+  /// One cardio block: time and distance on the row where weight and reps sit,
+  /// and under it a line carrying the pace it worked out to and — when the
+  /// exercise has one and it is in use — the machine's dial.
+  ///
+  /// Three equal controls do not fit a phone row at 46px, and they should not:
+  /// time and distance are what the user came to type, and incline is a number
+  /// they set once on the machine and rarely touch again. Demoting it to the
+  /// meta line keeps the two that matter full-width, and pairs the dial with
+  /// the pace it is responsible for.
+  Widget _cardioGroup(DraftEntry e, int i, Exercise ex) {
+    final s = e.sets[i];
+    final kind = ex.cardio;
+    final dist = s.dist ?? 0;
+    final secs = s.secs ?? 0;
+    final showModifier = _modifierShown(e, kind);
+    final (rate, rateUnit) = formatRate(dist, secs, kind,
+        asSpeed: _showSpeed.contains(e.id));
+    final hasRate = dist > 0 && secs > 0;
+
+    return Column(
+      key: ValueKey(s.id),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          height: _rowH,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _plainGutter(i),
+              const SizedBox(width: _gutterGap),
+              Expanded(
+                child: ArcTimeStepper(
+                  seconds: secs,
+                  onChanged: (v) => setState(() => s.secs = v),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ArcStepper(
+                  // Metres are what gets stored, but the control reads in
+                  // whichever unit the number is actually in — 400 m stays
+                  // 400 m and never becomes 0.4 km.
+                  value: kind.countsFloors || dist < 1000
+                      ? dist.round()
+                      : double.parse((dist / 1000).toStringAsFixed(2)),
+                  step: kind.countsFloors || dist < 1000
+                      ? distanceStep(dist, kind)
+                      : distanceStep(dist, kind) / 1000,
+                  max: 99999,
+                  suffix: formatDistance(dist, kind).$2,
+                  editable: true,
+                  decimals: kind.countsFloors || dist < 1000 ? 0 : 2,
+                  onChanged: (v) => setState(() => s.dist =
+                      kind.countsFloors || dist < 1000
+                          ? v.toDouble()
+                          : v.toDouble() * 1000),
+                ),
+              ),
+              _deleteButton(
+                onDelete: () => setState(() {
+                  e.sets.removeAt(i);
+                  _dropTarget.remove(e.id);
+                }),
+                label: 'Remove block ${i + 1}',
+              ),
+            ],
+          ),
+        ),
+        if (hasRate || showModifier)
+          Padding(
+            padding: const EdgeInsets.only(
+                left: _gutterW + _gutterGap, right: 34, top: 6, bottom: 2),
+            child: Row(
+              children: [
+                if (hasRate)
+                  Semantics(
+                    button: !kind.countsFloors,
+                    label: '$rate $rateUnit',
+                    onTap: kind.countsFloors
+                        ? null
+                        : () => setState(() => _showSpeed.contains(e.id)
+                            ? _showSpeed.remove(e.id)
+                            : _showSpeed.add(e.id)),
+                    child: ExcludeSemantics(
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: kind.countsFloors
+                            ? null
+                            : () => setState(() => _showSpeed.contains(e.id)
+                                ? _showSpeed.remove(e.id)
+                                : _showSpeed.add(e.id)),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.baseline,
+                          textBaseline: TextBaseline.alphabetic,
+                          children: [
+                            Text(rate,
+                                style: AppText.mono(
+                                    size: 13, weight: FontWeight.w700)),
+                            const SizedBox(width: 3),
+                            Text(rateUnit,
+                                style: AppText.ui(
+                                    size: 11.5,
+                                    weight: FontWeight.w500,
+                                    color: AppColors.faint)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                const Spacer(),
+                if (showModifier)
+                  SizedBox(
+                    width: 132,
+                    height: 38,
+                    child: ArcStepper(
+                      value: s.level ?? 0,
+                      step: kind.modifierStep,
+                      max: kind.modifierMax,
+                      suffix: kind.modifierSuffix.isEmpty
+                          ? kind.modifierLabel!.toLowerCase()
+                          : kind.modifierSuffix,
+                      editable: true,
+                      decimals: kind.modifierDecimals,
+                      onChanged: (v) =>
+                          setState(() => s.level = v.toDouble()),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// The ordinal gutter without the drop-target machinery — a cardio block has
+  /// no tiers to aim at, so the number is just a number.
+  Widget _plainGutter(int i) => SizedBox(
+        width: _gutterW,
+        child: Center(
+          child: Text('${i + 1}',
+              style: AppText.mono(
+                  size: 13, weight: FontWeight.w700, color: AppColors.faint)),
+        ),
+      );
+
+  Widget _deleteButton(
+          {required VoidCallback onDelete, required String label}) =>
+      Semantics(
+        button: true,
+        label: label,
+        child: GestureDetector(
+          onTap: onDelete,
+          behavior: HitTestBehavior.opaque,
+          child: SizedBox(
+            width: 34,
+            child: Icon(Icons.delete_outline_rounded,
+                size: 17, color: AppColors.faint),
+          ),
+        ),
+      );
+
   /// One row of the weight/reps grid. Identical geometry for a set and for a
   /// drop tier — only the gutter differs.
   Widget _stepperRow({
@@ -1086,12 +1323,18 @@ class _LogSheetState extends State<LogSheet> {
   /// `Add drop` names no set. Which set it lands on is already stated by the
   /// accented ordinal in the gutter, and the suffix that repeated it was the
   /// one label too long to fit half a phone-width control.
-  Widget _addControls(DraftEntry e, bool isBw) {
-    final canDrop = !isBw && e.sets.isNotEmpty;
+  Widget _addControls(DraftEntry e, bool isBw,
+      {bool isCardio = false, CardioKind kind = CardioKind.open}) {
+    // A drop tier means stripping weight and going again; there is nothing to
+    // strip off a treadmill. The second half of the control carries the
+    // modifier reveal for cardio instead — the same slot, a different offer.
+    final canDrop = !isBw && !isCardio && e.sets.isNotEmpty;
+    final canReveal =
+        isCardio && kind.hasModifier && !_modifierShown(e, kind) && e.sets.isNotEmpty;
     // Two labels side by side stop fitting well before the layout breaks, so
     // the control stacks rather than shrinking both to ellipses.
-    final stacked =
-        canDrop && MediaQuery.textScalerOf(context).scale(13.5) > 19;
+    final stacked = (canDrop || canReveal) &&
+        MediaQuery.textScalerOf(context).scale(13.5) > 19;
 
     Widget half(String icon, String label, String hint, VoidCallback onTap) =>
         Semantics(
@@ -1122,11 +1365,21 @@ class _LogSheetState extends State<LogSheet> {
           ),
         );
 
-    final addSet = half('plus', 'Add set', 'Adds a new working set', () => _addSet(e));
+    final addSet = half(
+        'plus',
+        isCardio ? 'Add block' : 'Add set',
+        isCardio ? 'Adds another cardio block' : 'Adds a new working set',
+        () => _addSet(e));
     final addDrop = canDrop
         ? half('chevD', 'Add drop', 'Adds a drop tier to set ${_targetIndex(e) + 1}',
             () => _addDrop(e))
-        : null;
+        : canReveal
+            ? half(
+                'plus',
+                kind.modifierLabel!,
+                'Shows the ${kind.modifierLabel!.toLowerCase()} control on every block',
+                () => setState(() => _modifierOpen.add(e.id)))
+            : null;
     final divider = ColoredBox(color: AppColors.line, child: const SizedBox());
 
     return Container(
@@ -1264,9 +1517,13 @@ class _LogSheetState extends State<LogSheet> {
         AddExerciseForm(
           submitLabel: 'Create & add',
           onCancel: () => setState(() => _view = 'pick'),
-          onCreate: (name, muscle, secondary, unit) async {
+          onCreate: (name, muscle, secondary, unit, cardioKind) async {
             final id = await store.addExercise(
-                name: name, muscle: muscle, secondary: secondary, unit: unit);
+                name: name,
+                muscle: muscle,
+                secondary: secondary,
+                unit: unit,
+                cardioKind: cardioKind);
             if (mounted) _addEntry(id);
           },
         ),

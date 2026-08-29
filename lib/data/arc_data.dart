@@ -1,6 +1,36 @@
 import 'dart:math' as math;
+import 'cardio.dart';
 import 'models.dart';
 import 'muscle.dart';
+
+/// The headline figure for a cardio record — the pace of the best block.
+///
+/// The *actual* pace, not the one the score implies. The score is grade
+/// adjusted so a hill session can outrank a flat one, but a runner who reads
+/// "4:32" wants the number that was on the treadmill, not a number that
+/// accounts for the incline they can already see printed beside it.
+String bestCardioValue(RecordPoint p, CardioKind kind) {
+  final d = p.dist ?? 0;
+  final s = p.secs ?? 0;
+  if (d <= 0 || s <= 0) return '—';
+  return formatRate(d, s, kind).$1;
+}
+
+String bestCardioUnit(CardioKind kind) =>
+    kind.countsFloors ? 'floors/min' : 'best /km';
+
+/// The distance a cardio best was set over, for the line beside the pace.
+///
+/// Always shown with the pace, and that pairing is load-bearing: the score is
+/// won by whichever block was quickest, which will usually be the shortest one.
+/// A thirty-second burst reading "2:58 /km" alone would masquerade as the best
+/// run in the history. With "· 200 m" next to it, it reads as what it is.
+String bestCardioContext(RecordPoint p, CardioKind kind) {
+  final d = p.dist ?? 0;
+  if (d <= 0) return '';
+  final (v, u) = formatDistance(d, kind);
+  return '$v $u';
+}
 
 /// Metrics + date helpers for Arc. (Exercise library and history are now
 /// entirely user-created and persisted in SQLite — no seed/placeholder data.)
@@ -16,6 +46,7 @@ class ArcData {
     'Pull': 'Pull Day',
     'Legs': 'Leg Day',
     'Core': 'Core Day',
+    'Cardio': 'Conditioning',
   };
 
   /// Recovers the muscle group from a session title. Only a last resort now —
@@ -73,8 +104,33 @@ class ArcData {
   static double e1rm(double weight, int reps) =>
       weight <= 0 ? 0.0 : (weight * (1 + reps / 30) * 10).round() / 10;
 
-  static double setScore(Exercise ex, WorkoutSet s) =>
-      ex.unit == 'bw' ? s.reps.toDouble() : e1rm(s.weight, s.reps);
+  /// What a cardio set is worth, in metres per second of grade-adjusted speed.
+  ///
+  /// **Speed, not pace** — and that is the whole reason this works without
+  /// touching anything else. Every consumer of a score already assumes bigger
+  /// is better: [computeRecords] promotes on `topScore > best.score`,
+  /// `RecordQuery` sorts descending, the dashboard delta paints itself with
+  /// `AppColors.up` and an up arrow. A pace would have inverted all of them.
+  /// Pace is a display transform on the way out ([paceFromScore]).
+  ///
+  /// Incline folds in as [gradeFactor], which is what makes it the load of a
+  /// treadmill run rather than a footnote to one.
+  ///
+  /// There is deliberately no cross-distance normalisation (Riegel and its
+  /// relatives). It is only sound between about 1500 m and 30 km, and it
+  /// fabricates outside that band — it would credit a 13-second 100 m with a
+  /// 2:29 kilometre. Within one exercise, like is compared with like, which is
+  /// all [computeRecords] ever asks.
+  static double cardioScore(Exercise ex, WorkoutSet s) {
+    if (!s.hasCardio) return 0;
+    return speedOf(s.dist! * gradeFactor(ex.cardio, s.level), s.secs!);
+  }
+
+  static double setScore(Exercise ex, WorkoutSet s) => switch (ex.unit) {
+        'bw' => s.reps.toDouble(),
+        'cardio' => cardioScore(ex, s),
+        _ => e1rm(s.weight, s.reps),
+      };
 
   /// Formats a 1RM/score to one decimal place, dropping a trailing `.0`
   /// (187.5 → "187.5", 190.0 → "190").
@@ -99,6 +155,7 @@ class ArcData {
         WorkoutSet? topSet;
         var topScore = -1.0;
         var maxW = 0.0;
+        var totalSecs = 0;
         for (final s in e.sets) {
           final sc = setScore(ex, s);
           if (sc > topScore) {
@@ -106,8 +163,15 @@ class ArcData {
             topSet = s;
           }
           if (s.weight > maxW) maxW = s.weight;
+          totalSecs += s.secs ?? 0;
         }
         if (topSet == null) continue;
+        // A cardio effort needs both a duration and a distance to be a
+        // performance. A block logged with only one of them is a real
+        // half-finished state — an elliptical with no distance readout, a run
+        // still being typed in — and plotting it as a zero would put a floor in
+        // the trend that never happened.
+        if (ex.isCardio && topScore <= 0) continue;
         final point = RecordPoint(
           date: ses.date,
           score: topScore,
@@ -115,6 +179,10 @@ class ArcData {
           maxWeight: maxW,
           reps: topSet.reps,
           sets: e.sets.length,
+          secs: topSet.secs,
+          dist: topSet.dist,
+          level: topSet.level,
+          totalSecs: ex.isCardio ? totalSecs : null,
         );
         rec.history.add(point);
         if (rec.best == null || topScore > rec.best!.score) {
@@ -143,13 +211,19 @@ class ArcData {
     int days = 14,
     double secondaryWeight = 0.4,
   }) {
-    final raw = {for (final m in Muscle.values) m: 0.0};
+    // Trainable only: Conditioning is counted in minutes and the body has no
+    // mesh for it, so a key here would be a group that can never light.
+    final raw = {for (final m in Muscle.trainable) m: 0.0};
     for (final s in sessions) {
       final ago = daysAgo(s.date);
       if (ago < 0 || ago >= days) continue;
       for (final e in s.entries) {
         final ex = exById(e.exerciseId);
         if (ex == null) continue;
+        // Conditioning is counted in minutes, not sets, and the body has no
+        // mesh to light for it. Leaving it in would let four treadmill blocks
+        // outrank a squat session on a scale neither of them shares.
+        if (ex.isCardio) continue;
         final sets = e.sets.length.toDouble();
         if (sets == 0) continue;
         raw[ex.muscle] = raw[ex.muscle]! + sets;
@@ -180,7 +254,7 @@ class ArcData {
       if (ago < 0 || ago >= days) continue;
       for (final e in s.entries) {
         final ex = exById(e.exerciseId);
-        if (ex == null) continue;
+        if (ex == null || ex.isCardio) continue;
         if (ex.muscle == muscle) {
           direct += e.sets.length;
         } else if (ex.secondary.contains(muscle)) {
@@ -307,17 +381,36 @@ class ArcData {
     return Muscle.values.where(trained.contains).toList();
   }
 
-  static WorkoutStats workoutStats(List<Session> sessions) {
+  /// Workout and set counts, plus the week's conditioning time.
+  ///
+  /// Cardio entries are counted in seconds and *not* in sets. A treadmill block
+  /// is one entry whether it ran for six minutes or sixty, so folding it into
+  /// "62 sets" would inflate a number the user reads as lifting volume — the
+  /// same reason [muscleVolume] skips it.
+  static WorkoutStats workoutStats(
+      List<Session> sessions, Exercise? Function(String) exById) {
     var totalSets = 0;
     var thisWeek = 0;
     var setsThisWeek = 0;
+    var cardioSecsThisWeek = 0;
     for (final s in sessions) {
-      final sets = s.entries.fold<int>(0, (x, e) => x + e.sets.length);
+      var sets = 0;
+      var cardioSecs = 0;
+      for (final e in s.entries) {
+        if (exById(e.exerciseId)?.isCardio ?? false) {
+          for (final st in e.sets) {
+            cardioSecs += st.secs ?? 0;
+          }
+        } else {
+          sets += e.sets.length;
+        }
+      }
       totalSets += sets;
       final ago = daysAgo(s.date);
       if (ago >= 0 && ago <= 6) {
         thisWeek++;
         setsThisWeek += sets;
+        cardioSecsThisWeek += cardioSecs;
       }
     }
     return WorkoutStats(
@@ -325,7 +418,88 @@ class ArcData {
       totalSets: totalSets,
       thisWeek: thisWeek,
       setsThisWeek: setsThisWeek,
+      cardioSecsThisWeek: cardioSecsThisWeek,
     );
+  }
+
+  /// Seconds of conditioning across [sessions], for the calendar's month tile.
+  static int cardioSeconds(
+      List<Session> sessions, Exercise? Function(String) exById) {
+    var total = 0;
+    for (final s in sessions) {
+      for (final e in s.entries) {
+        if (!(exById(e.exerciseId)?.isCardio ?? false)) continue;
+        for (final st in e.sets) {
+          total += st.secs ?? 0;
+        }
+      }
+    }
+    return total;
+  }
+
+  /// Sets across [sessions], counted Arc's way — conditioning excluded.
+  static int strengthSets(
+      List<Session> sessions, Exercise? Function(String) exById) {
+    var total = 0;
+    for (final s in sessions) {
+      for (final e in s.entries) {
+        if (exById(e.exerciseId)?.isCardio ?? false) continue;
+        total += e.sets.length;
+      }
+    }
+    return total;
+  }
+
+  /// The best effort at each benchmark distance, newest-first per benchmark.
+  ///
+  /// Only benchmarks with a qualifying set appear — an empty row would promise
+  /// a distance the user has never run. Returns the fastest set at each mark,
+  /// paired with the date it was set.
+  static List<({Benchmark mark, RecordPoint point})> benchmarkBests(
+    String exerciseId,
+    List<Session> sessions,
+    Exercise ex,
+  ) {
+    if (!ex.isCardio) return const [];
+    final best = <int, ({Benchmark mark, RecordPoint point})>{};
+    for (final ses in sessions) {
+      for (final e in ses.entries) {
+        if (e.exerciseId != exerciseId) continue;
+        for (final s in e.sets) {
+          if (!s.hasCardio) continue;
+          for (var i = 0; i < Benchmark.all.length; i++) {
+            final mark = Benchmark.all[i];
+            if (!mark.accepts(s.dist!)) continue;
+            // Normalise to the mark itself so a 5.1 km and a 4.9 km compete on
+            // the same footing rather than the longer one always losing.
+            final norm = s.secs! * (mark.metres / s.dist!);
+            final held = best[i];
+            if (held == null || norm < held.point.secs!) {
+              best[i] = (
+                mark: mark,
+                point: RecordPoint(
+                  date: ses.date,
+                  score: cardioScore(ex, s),
+                  weight: 0,
+                  maxWeight: 0,
+                  reps: 0,
+                  sets: 1,
+                  secs: norm.round(),
+                  dist: mark.metres,
+                  level: s.level,
+                ),
+              );
+            }
+          }
+        }
+      }
+    }
+    final out = <({Benchmark mark, RecordPoint point})>[];
+    for (var i = 0; i < Benchmark.all.length; i++) {
+      final b = best[i];
+      if (b != null) out.add(b);
+    }
+    return out;
   }
 
   /// Weekday index matching JS getDay() (Sun=0 .. Sat=6).

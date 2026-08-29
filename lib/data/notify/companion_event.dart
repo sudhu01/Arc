@@ -20,6 +20,7 @@
 
 import 'dart:convert';
 
+import '../cardio.dart';
 import '../arc_data.dart';
 
 /// The moments Arc broadcasts to companions. Wire values — never renamed
@@ -142,12 +143,24 @@ class CompanionEvent {
     required double weight,
     required int reps,
     required String unit,
+    int? secs,
+    double? dist,
+    double? level,
+    String? cardio,
   }) =>
       {
         'exercise': exercise,
         'weight': weight,
         'reps': reps,
         'unit': unit,
+        // Carried only on a cardio record, so a lift's payload is unchanged and
+        // a companion on a build without cardio drops the keys and still reads
+        // the record — as `0 kg × 0`, which is why [AlertCopy] leans on `unit`
+        // rather than on these being present.
+        'secs': ?secs,
+        'dist': ?dist,
+        'level': ?level,
+        'cardio': ?cardio,
       };
 
   // ── Payload readers ─────────────────────────────────────────────────
@@ -168,6 +181,14 @@ class CompanionEvent {
   /// Bodyweight lifts are scored in reps; everything else in kilos. The unit
   /// decides which number the sentence quotes, so it travels with the record.
   bool get isBodyweight => payload['unit'] == 'bw';
+
+  bool get isCardio => payload['unit'] == 'cardio';
+
+  int? get secs => (payload['secs'] as num?)?.toInt();
+  double? get dist => (payload['dist'] as num?)?.toDouble();
+  double? get level => (payload['level'] as num?)?.toDouble();
+  CardioKind get cardioKind =>
+      CardioKind.fromId(payload['cardio'] as String?) ?? CardioKind.fallback;
 }
 
 /// What a moment says, in Arc's voice.
@@ -205,9 +226,17 @@ class AlertCopy {
         // announce a number the companion already saw last week and call it
         // new. Arc's own notation everywhere else is `100 kg × 8`; the sentence
         // uses it, so the thing that actually moved is always on screen.
-        final amount = event.isBodyweight
-            ? '${event.reps} ${event.reps == 1 ? 'rep' : 'reps'}'
-            : '${ArcData.fmtScore(event.weight)} kg × ${event.reps}';
+        //
+        // A cardio record quotes the block that set it — the distance and the
+        // time — rather than the pace it works out to. "5.2 km in 27:40" is
+        // what the runner would say out loud; "3.13 m/s" is what the database
+        // holds, and nobody has ever said it.
+        final amount = event.isCardio
+            ? cardioSetLine(
+                event.secs, event.dist, event.level, event.cardioKind)
+            : event.isBodyweight
+                ? '${event.reps} ${event.reps == 1 ? 'rep' : 'reps'}'
+                : '${ArcData.fmtScore(event.weight)} kg × ${event.reps}';
         final lift = event.exerciseName;
         return AlertCopy(
           title: '$who has a new PR record',

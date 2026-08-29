@@ -57,6 +57,7 @@ class MuscleRamp {
     MuscleRegion.pull: 255,
     MuscleRegion.legs: 150,
     MuscleRegion.core: 320,
+    MuscleRegion.cardio: 85,
   };
 
   /// Where each group starts for a new install.
@@ -107,6 +108,13 @@ class MuscleRamp {
     Muscle.hamstrings: 162, // Emerald #00B47B
     Muscle.glutes: 114, // Olive   #98A20E
     Muscle.calves: 186, // Teal    #00B0A3
+    // Conditioning — the one group filed in the 58° hole, at its centre. That
+    // band was left empty because a *fill* there turns to mustard, and thirteen
+    // filled dots could not afford one. Conditioning is drawn as a ring
+    // instead (see [MuscleDot.hollow]), so it is a stroke rather than a mass,
+    // and the gold reads as gold. It buys 29° of clearance on both sides —
+    // more than the tightest pair among the thirteen already has.
+    Muscle.cardio: 85, // Gold
   };
 
   static int defaultHue(Muscle m) => defaultHues[m] ?? regionAnchorHue[m.region]!;

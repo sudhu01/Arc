@@ -48,8 +48,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
       final dt = ArcData.parseISO(s.date);
       return dt.year == _y && dt.month == _m;
     }).toList();
-    final monthSets = monthSessions.fold<int>(
-        0, (a, s) => a + s.entries.fold<int>(0, (x, e) => x + e.sets.length));
+    // Conditioning is counted in minutes, not sets, so the month's set count
+    // stays a lifting figure and the run gets its own line under it.
+    final monthSets = ArcData.strengthSets(monthSessions, store.exById);
+    final monthCardio = ArcData.cardioSeconds(monthSessions, store.exById);
 
     final atCurrent = _y == today.year && _m == today.month;
 
@@ -101,7 +103,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 sub: 'this month'),
             const SizedBox(width: 10),
             StatTile(
-                label: 'Total sets', value: '$monthSets', sub: 'this month'),
+                label: 'Total sets',
+                value: '$monthSets',
+                sub: monthCardio > 0
+                    ? '+ ${(monthCardio / 60).round()} min conditioning'
+                    : 'this month'),
           ],
         ),
         const SizedBox(height: 18),

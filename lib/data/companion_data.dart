@@ -24,12 +24,14 @@ class CompanionData {
     List<Session> sessions,
   ) {
     final sorted = [...sessions]..sort((a, b) => b.date.compareTo(a.date));
+    final index = {for (final e in exercises) e.id: e};
+    Exercise? byId(String id) => index[id];
     return CompanionData(
       companion: companion,
       exercises: exercises,
       sessions: sorted,
       records: ArcData.computeRecords(sorted, exercises),
-      stats: ArcData.workoutStats(sorted),
+      stats: ArcData.workoutStats(sorted, byId),
     );
   }
 

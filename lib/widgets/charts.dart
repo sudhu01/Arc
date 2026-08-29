@@ -332,14 +332,22 @@ class ProgressPoint {
 /// instead of a normalised swoosh.
 class ProgressChart extends StatelessWidget {
   final List<ProgressPoint> points; // chronological, earliest first
-  final String unit; // 'kg' | 'reps' — shown on the top value label
+  final String unit; // 'kg' | 'reps' | 'min/km' — shown on the top value label
   final double height;
+
+  /// How to render a value on the axis and in the tap dialog.
+  ///
+  /// Null renders a plain number, which is right for kilograms and reps. Pace
+  /// needs it: an axis reading `4.5` where the runner thinks in `4:32` is a
+  /// number they have to convert in their head every time they glance at it.
+  final String Function(double)? formatValue;
 
   const ProgressChart({
     super.key,
     required this.points,
     this.unit = 'kg',
     this.height = 150,
+    this.formatValue,
   });
 
   @override
@@ -356,7 +364,8 @@ class ProgressChart extends StatelessWidget {
             onTapUp: (d) => _handleTap(context, d.localPosition, size),
             child: CustomPaint(
               size: size,
-              painter: _ProgressPainter(points: points, unit: unit),
+              painter: _ProgressPainter(
+                  points: points, unit: unit, formatValue: formatValue),
             ),
           );
         },
@@ -368,7 +377,8 @@ class ProgressChart extends StatelessWidget {
   /// same layout the painter draws with) and opens a value dialog for the
   /// nearest one, as long as the tap actually landed near a point.
   void _handleTap(BuildContext context, Offset local, Size size) {
-    final geo = _ProgressGeometry(points: points, unit: unit, size: size);
+    final geo = _ProgressGeometry(
+        points: points, unit: unit, size: size, formatValue: formatValue);
     var bestI = 0;
     var bestDist = double.infinity;
     for (var i = 0; i < points.length; i++) {
@@ -382,7 +392,8 @@ class ProgressChart extends StatelessWidget {
     showDialog<void>(
       context: context,
       barrierColor: AppColors.scrim,
-      builder: (_) => _SessionValueDialog(point: points[bestI], unit: unit),
+      builder: (_) => _SessionValueDialog(
+          point: points[bestI], unit: unit, formatValue: formatValue),
     );
   }
 }
@@ -391,13 +402,17 @@ class ProgressChart extends StatelessWidget {
 class _SessionValueDialog extends StatelessWidget {
   final ProgressPoint point;
   final String unit;
-  const _SessionValueDialog({required this.point, required this.unit});
+  final String Function(double)? formatValue;
+  const _SessionValueDialog(
+      {required this.point, required this.unit, this.formatValue});
 
   @override
   Widget build(BuildContext context) {
-    final valueLabel = unit == 'reps'
-        ? point.value.round().toString()
-        : _ProgressPainter._fmt(point.value);
+    final valueLabel = formatValue != null
+        ? formatValue!(point.value)
+        : unit == 'reps'
+            ? point.value.round().toString()
+            : _ProgressPainter._fmt(point.value);
     return Dialog(
       backgroundColor: AppColors.surface,
       insetPadding: const EdgeInsets.symmetric(horizontal: 56),
@@ -460,7 +475,9 @@ class _ProgressGeometry {
     required List<ProgressPoint> points,
     required String unit,
     required Size size,
+    String Function(double)? formatValue,
   }) {
+    String fmt(double v) => formatValue?.call(v) ?? _ProgressPainter._fmt(v);
     final lo = points.map((p) => p.value).reduce(math.min);
     final hi = points.map((p) => p.value).reduce(math.max);
     final (axisLo, axisHi, step) = _niceScale(lo, hi);
@@ -482,7 +499,7 @@ class _ProgressGeometry {
     var gutterW = 0.0;
     for (final g in grid) {
       final isTop = g == grid.last;
-      final tp = ylab(isTop ? '${_ProgressPainter._fmt(g)} $unit' : _ProgressPainter._fmt(g));
+      final tp = ylab(isTop ? '${fmt(g)} $unit' : fmt(g));
       if (tp.width > gutterW) gutterW = tp.width;
     }
 
@@ -549,15 +566,20 @@ class _ProgressGeometry {
 class _ProgressPainter extends CustomPainter {
   final List<ProgressPoint> points;
   final String unit;
-  _ProgressPainter({required this.points, required this.unit});
+  final String Function(double)? formatValue;
+  _ProgressPainter(
+      {required this.points, required this.unit, this.formatValue});
 
   static String _fmt(double v) =>
       v % 1 == 0 ? v.toInt().toString() : v.toStringAsFixed(1);
 
+  String _v(double v) => formatValue?.call(v) ?? _fmt(v);
+
   @override
   void paint(Canvas canvas, Size size) {
     final w = size.width, h = size.height;
-    final geo = _ProgressGeometry(points: points, unit: unit, size: size);
+    final geo = _ProgressGeometry(
+        points: points, unit: unit, size: size, formatValue: formatValue);
     final padL = geo.padL, padR = geo.padR, padT = geo.padT, padB = geo.padB;
     final innerW = geo.innerW, innerH = geo.innerH;
 
@@ -584,7 +606,7 @@ class _ProgressPainter extends CustomPainter {
         dx += dash + gap;
       }
       final isTop = g == geo.grid.last;
-      final tp = ylab(isTop ? '${_fmt(g)} $unit' : _fmt(g));
+      final tp = ylab(isTop ? '${_v(g)} $unit' : _v(g));
       tp.paint(canvas, Offset(padL - 8 - tp.width, gy - tp.height / 2));
     }
 

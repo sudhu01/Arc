@@ -121,10 +121,20 @@ class ExerciseRow extends StatelessWidget {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      Text(isBw ? '${b.reps}' : ArcData.fmtScore(b.score),
+                      Text(
+                          exercise.isCardio
+                              ? bestCardioValue(b, exercise.cardio)
+                              : isBw
+                                  ? '${b.reps}'
+                                  : ArcData.fmtScore(b.score),
                           style:
                               AppText.mono(size: 16, weight: FontWeight.w700)),
-                      Text(isBw ? 'reps' : 'kg 1RM',
+                      Text(
+                          exercise.isCardio
+                              ? bestCardioUnit(exercise.cardio)
+                              : isBw
+                                  ? 'reps'
+                                  : 'kg 1RM',
                           style: AppText.ui(
                               size: 10,
                               weight: FontWeight.w600,

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../data/cardio.dart';
 import '../data/muscle.dart';
 import '../data/muscle_map.dart';
 import '../data/store.dart';
@@ -30,8 +31,8 @@ Widget _label(String text, {Widget? trailing}) => Padding(
 
 /// Shared form to create a new exercise.
 class AddExerciseForm extends StatefulWidget {
-  final void Function(
-      String name, Muscle muscle, List<Muscle> secondary, String unit) onCreate;
+  final void Function(String name, Muscle muscle, List<Muscle> secondary,
+      String unit, CardioKind? cardioKind) onCreate;
   final VoidCallback? onCancel;
   final String submitLabel;
 
@@ -58,13 +59,20 @@ class _AddExerciseFormState extends State<AddExerciseForm> {
   late Muscle _muscle = widget.initialMuscle ?? Muscle.chest;
   List<Muscle> _secondary = const [];
   String _unit = 'kg';
+  CardioKind _cardioKind = CardioKind.run;
 
   /// Until the user touches a picker, the name drives the groups. The moment
   /// they do, it stops — nothing is more irritating than a control that undoes
   /// your choice because you kept typing.
   late bool _followName = widget.initialMuscle == null;
 
+  /// The same rule for the tracking control: "Treadmill" selects Cardio and Run
+  /// on its own, and stops doing so the instant the user picks either by hand.
+  bool _followNameUnit = true;
+
   bool _secondaryOpen = false;
+
+  bool get _isCardio => _unit == 'cardio';
 
   @override
   void dispose() {
@@ -74,11 +82,45 @@ class _AddExerciseFormState extends State<AddExerciseForm> {
 
   void _onNameChanged(String value) {
     setState(() {
+      // The tracking guess runs on its own flag: a user who picked Bodyweight
+      // by hand and then finished typing "Pull-Up" should keep Bodyweight, but
+      // should still get the group the dictionary reads off the name.
+      if (_followNameUnit) {
+        final kind = MuscleMap.cardioGuess(value);
+        if (kind != null) {
+          _unit = 'cardio';
+          _cardioKind = kind;
+          // Holds the invariant even when the user pinned a group first: there
+          // is no such thing as a treadmill filed under Chest.
+          _muscle = Muscle.cardio;
+          _secondary = const [];
+        } else if (_unit == 'cardio') {
+          // The name stopped reading as cardio — "Bike" edited to "Bike Squat".
+          _unit = 'kg';
+        }
+      }
       if (!_followName) return;
       final guess = MuscleMap.guess(value);
       if (guess == null) return;
       _muscle = guess.primary;
       _secondary = guess.secondary;
+    });
+  }
+
+  void _pickUnit(String v) {
+    setState(() {
+      _followNameUnit = false;
+      _unit = v;
+      // Conditioning is never a body part, and nothing else can be filed under
+      // it. Both directions are handled here so the group can never disagree
+      // with the tracking, whichever the user changed.
+      if (v == 'cardio') {
+        _muscle = Muscle.cardio;
+        _secondary = const [];
+        _followName = false;
+      } else if (_muscle == Muscle.cardio) {
+        _muscle = MuscleMap.guess(_controller.text)?.primary ?? Muscle.chest;
+      }
     });
   }
 
@@ -100,10 +142,25 @@ class _AddExerciseFormState extends State<AddExerciseForm> {
     });
   }
 
+  /// One line saying what this kind will actually ask for, so the third
+  /// measure is never a surprise the first time the log sheet draws it.
+  static String _kindNote(CardioKind k) => switch (k) {
+        CardioKind.run =>
+          'Treadmill, running, sprints. Time, distance and incline.',
+        CardioKind.machine =>
+          'Elliptical, bike, rower. Time, distance and resistance.',
+        CardioKind.climb => 'Stairs and stepmills. Time, floors and level.',
+        CardioKind.open => 'Jump rope, swimming, rucking. Time and distance.',
+      };
+
   @override
   Widget build(BuildContext context) {
     final valid = _controller.text.trim().isNotEmpty;
-    final matched = _followName && MuscleMap.guess(_controller.text) != null;
+    final matched = _followName &&
+        !_isCardio &&
+        MuscleMap.guess(_controller.text) != null;
+    final cardioMatched =
+        _followNameUnit && MuscleMap.cardioGuess(_controller.text) != null;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -117,34 +174,78 @@ class _AddExerciseFormState extends State<AddExerciseForm> {
           onChanged: _onNameChanged,
         ),
         const SizedBox(height: 18),
-        _label(
-          'Muscle group',
-          trailing: matched
-              ? Text('set from the name',
-                  style: AppText.ui(
-                      size: 11.5,
-                      weight: FontWeight.w500,
-                      color: AppColors.faint))
-              : null,
-        ),
-        MusclePicker(selected: {_muscle}, onTap: _pickPrimary),
-        const SizedBox(height: 18),
-        _SecondaryField(
-          secondary: _secondary,
-          primary: _muscle,
-          open: _secondaryOpen,
-          onToggleOpen: () => setState(() => _secondaryOpen = !_secondaryOpen),
-          onToggleMuscle: _toggleSecondary,
-        ),
+        // Conditioning replaces the group question rather than answering it —
+        // the group is settled the moment the tracking is, and a wall of
+        // thirteen body parts above a treadmill is a question with no right
+        // answer. What a treadmill *does* need asking is which machine it is,
+        // so that slot carries the machine instead.
+        if (_isCardio) ...[
+          _label(
+            'Machine',
+            trailing: cardioMatched
+                ? Text('set from the name',
+                    style: AppText.ui(
+                        size: 11.5,
+                        weight: FontWeight.w500,
+                        color: AppColors.faint))
+                : null,
+          ),
+          Segmented(
+            options: [
+              for (final k in CardioKind.values) SegOption(k.id, k.label),
+            ],
+            value: _cardioKind.id,
+            onChanged: (v) => setState(() {
+              _followNameUnit = false;
+              _cardioKind = CardioKind.fromId(v) ?? CardioKind.run;
+            }),
+          ),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.only(left: 2),
+            child: Text(
+              _kindNote(_cardioKind),
+              style: AppText.ui(
+                  size: 12.5, height: 1.4, color: AppColors.muted),
+            ),
+          ),
+        ] else ...[
+          _label(
+            'Muscle group',
+            trailing: matched
+                ? Text('set from the name',
+                    style: AppText.ui(
+                        size: 11.5,
+                        weight: FontWeight.w500,
+                        color: AppColors.faint))
+                : null,
+          ),
+          MusclePicker(
+              selected: {_muscle},
+              onTap: _pickPrimary,
+              muscles: Muscle.trainable),
+          const SizedBox(height: 18),
+          _SecondaryField(
+            secondary: _secondary,
+            primary: _muscle,
+            open: _secondaryOpen,
+            onToggleOpen: () => setState(() => _secondaryOpen = !_secondaryOpen),
+            onToggleMuscle: _toggleSecondary,
+          ),
+        ],
         const SizedBox(height: 18),
         _label('Tracking'),
         Segmented(
+          // Labels shortened from "Weight (kg)" to fit three segments: the
+          // control ellipsises rather than wrapping, and "Weight" loses nothing
+          // the kg suffix on the stepper does not already say.
           options: const [
-            SegOption('kg', 'Weight (kg)'),
+            SegOption('kg', 'Weight'),
             SegOption('bw', 'Bodyweight'),
+            SegOption('cardio', 'Cardio'),
           ],
           value: _unit,
-          onChanged: (v) => setState(() => _unit = v),
+          onChanged: _pickUnit,
         ),
         const SizedBox(height: 22),
         Row(
@@ -168,8 +269,13 @@ class _AddExerciseFormState extends State<AddExerciseForm> {
                 full: true,
                 disabled: !valid,
                 onTap: valid
-                    ? () => widget.onCreate(_controller.text.trim(), _muscle,
-                        _secondary, _unit)
+                    ? () => widget.onCreate(
+                          _controller.text.trim(),
+                          _muscle,
+                          _secondary,
+                          _unit,
+                          _isCardio ? _cardioKind : null,
+                        )
                     : null,
               ),
             ),
@@ -262,6 +368,7 @@ class _SecondaryField extends StatelessWidget {
             selected: secondary.toSet(),
             onTap: onToggleMuscle,
             disabled: {primary},
+            muscles: Muscle.trainable,
           ),
         ],
       ],
@@ -387,9 +494,13 @@ class AddExerciseSheet extends StatelessWidget {
     final store = context.read<ArcStore>();
     return AddExerciseForm(
       initialMuscle: initialMuscle,
-      onCreate: (name, muscle, secondary, unit) async {
+      onCreate: (name, muscle, secondary, unit, cardioKind) async {
         await store.addExercise(
-            name: name, muscle: muscle, secondary: secondary, unit: unit);
+            name: name,
+            muscle: muscle,
+            secondary: secondary,
+            unit: unit,
+            cardioKind: cardioKind);
         if (context.mounted) Navigator.of(context).maybePop();
       },
     );

@@ -52,17 +52,21 @@ enum RecordSort {
   /// what?", "where do bodyweight lifts go?").
   String get note => switch (this) {
         RecordSort.muscle => 'Down the body, heaviest first inside each group.',
-        RecordSort.best => 'Estimated 1RM — or reps, for a bodyweight lift.',
-        RecordSort.weight => 'Bodyweight lifts carry no weight, so they sort last.',
-        RecordSort.reps => 'Reps in the set that set the record.',
+        RecordSort.best =>
+          'Estimated 1RM — reps for a bodyweight lift, pace for cardio.',
+        RecordSort.weight =>
+          'Bodyweight lifts and cardio carry no weight, so they sort last.',
+        RecordSort.reps => 'Reps in the set that set the record. Cardio has '
+            'none, so it sorts last.',
       };
 }
 
 /// Which lifts the list is allowed to show, by how they are loaded.
 enum RecordUnit {
   all('All'),
-  weighted('Weighted'),
-  bodyweight('Bodyweight');
+  weighted('Weight'),
+  bodyweight('Bodyweight'),
+  cardio('Cardio');
 
   const RecordUnit(this.label);
 
@@ -150,8 +154,11 @@ class RecordQuery {
     // under its primary group only, and a filter that disagreed with where the
     // user put the lift would read as a bug.
     if (muscles.isNotEmpty && !muscles.contains(r.ex.muscle)) return false;
-    if (unit == RecordUnit.weighted && r.ex.isBodyweight) return false;
+    if (unit == RecordUnit.weighted && (r.ex.isBodyweight || r.ex.isCardio)) {
+      return false;
+    }
     if (unit == RecordUnit.bodyweight && !r.ex.isBodyweight) return false;
+    if (unit == RecordUnit.cardio && !r.ex.isCardio) return false;
     if (newOnly && !ArcData.isNewRecord(best.date)) return false;
     return true;
   }
@@ -163,13 +170,18 @@ class RecordQuery {
   }
 
   int _compare(ExerciseRecord a, ExerciseRecord b) {
-    if (sort == RecordSort.weight) {
+    if (sort == RecordSort.weight || sort == RecordSort.reps) {
       // A bodyweight lift has no weight to rank — it is unranked on this axis
       // rather than zero on it, so it sits after the ranked lifts in *both*
       // directions instead of leading the ascending list with a phantom 0 kg.
-      final ua = a.ex.isBodyweight ? 1 : 0;
-      final ub = b.ex.isBodyweight ? 1 : 0;
-      if (ua != ub) return ua - ub;
+      //
+      // Cardio has neither weight nor reps, so it takes the same treatment on
+      // both axes. Same reasoning, one more kind of record it applies to.
+      int rank(ExerciseRecord r) => r.ex.isCardio
+          ? 1
+          : (sort == RecordSort.weight && r.ex.isBodyweight ? 1 : 0);
+      final d = rank(a) - rank(b);
+      if (d != 0) return d;
     }
 
     var cmp = switch (sort) {

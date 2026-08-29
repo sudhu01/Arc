@@ -29,7 +29,17 @@ enum Muscle {
   quads('Quads', 'Legs'),
   hamstrings('Hamstrings', 'Legs'),
   glutes('Glutes', 'Legs'),
-  calves('Calves', 'Legs');
+  calves('Calves', 'Legs'),
+
+  /// Conditioning. Not a muscle, and deliberately last: declaration order is
+  /// display order everywhere, and a body part is what the other twelve are.
+  ///
+  /// Cardio needs *a* place in this taxonomy because every surface that files,
+  /// filters, colours or summarises an exercise reads [Muscle] — but it is not
+  /// counted the way the others are. [ArcData.muscleVolume] and
+  /// [ArcData.muscleSets] both skip it: they count in sets, and a set is not
+  /// what a run is made of.
+  cardio('Cardio', 'Cardio');
 
   const Muscle(this.label, this.region);
 
@@ -74,6 +84,14 @@ enum Muscle {
   /// The groups belonging to one coarse region, in display order.
   static List<Muscle> inRegion(String region) =>
       Muscle.values.where((m) => m.region == region).toList();
+
+  /// The thirteen body parts — everything a lift can be filed under.
+  ///
+  /// For the surfaces that ask "which muscle does this work", where
+  /// [Muscle.cardio] is not an answer. Browsing surfaces (the library, the
+  /// records filter, the colour picker) use [values] and show all fourteen.
+  static final List<Muscle> trainable =
+      List.unmodifiable(Muscle.values.where((m) => m != Muscle.cardio));
 }
 
 /// The coarse tier, kept as plain strings because that is what the database
@@ -86,7 +104,13 @@ class MuscleRegion {
   static const legs = 'Legs';
   static const core = 'Core';
 
-  static const all = [push, pull, legs, core];
+  /// Conditioning — the one region that holds no muscle.
+  static const cardio = 'Cardio';
+
+  /// Last, and that placement is load-bearing: [ArcData.dominantGroup] breaks a
+  /// tie by this order, so a day of three lifts and three runs still titles as
+  /// the lifting day it was.
+  static const all = [push, pull, legs, core, cardio];
 
   /// Where an exercise lands when all we know is its region — a row written by
   /// a build that predates the muscle taxonomy, or a companion still on one.
@@ -97,6 +121,7 @@ class MuscleRegion {
         pull => Muscle.lats,
         legs => Muscle.quads,
         core => Muscle.abs,
+        cardio => Muscle.cardio,
         _ => Muscle.chest,
       };
 }
