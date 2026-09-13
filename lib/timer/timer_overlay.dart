@@ -348,7 +348,7 @@ class _FloatingRestBarState extends State<_FloatingRestBar> {
                       // inside Arc, which is the point of this window.
                       const SizedBox(width: 18),
                       Text(
-                        over ? 'REST OVER' : (s.paused ? 'PAUSED' : 'REST'),
+                        over ? 'Rest over' : (s.paused ? 'Paused' : 'Rest'),
                         style: TextStyle(
                           fontFamily: 'Sora',
                           fontSize: 11.5,

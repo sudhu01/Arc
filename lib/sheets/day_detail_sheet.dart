@@ -157,11 +157,7 @@ class DayDetailSheet extends StatelessWidget {
 
     final group = ArcData.sessionGroup(ses, exById);
     final muscles = ArcData.sessionMuscles(ses, exById);
-    // The group is spelled out only when the title stops carrying it — a
-    // workout called "Chest & Arms" would otherwise state its group in the dot
-    // alone, which is exactly what red/green vision can't read.
     final meta = [
-      if (ses.name != null) group,
       if (totalSets > 0) '$totalSets ${totalSets == 1 ? 'set' : 'sets'}',
       if (cardioSecs > 0) '${(cardioSecs / 60).round()} min',
     ].join(' · ');

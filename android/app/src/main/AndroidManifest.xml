@@ -21,6 +21,9 @@
          falls back to an inexact alarm rather than pretending. -->
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <!-- Lets flutter_local_notifications restore an active rest alarm after a
+         device restart. Android clears AlarmManager alarms at reboot. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- The opt-in floating bubble (flutter_overlay_window). Granted by hand in
          system settings, never at launch — Arc asks only when the user turns
          "Float over other apps" on. The plugin contributes its own overlay
@@ -55,6 +58,27 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- `zonedSchedule` targets these receivers. They are intentionally
+             declared by Arc rather than assumed to come from the plugin, so
+             AlarmManager can deliver a rest alarm after this process is gone.
+             The boot receiver restores a still-running timer after reboot, and
+             the action receiver keeps shade controls working off screen. -->
+        <receiver
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver"
+            android:exported="false" />
+        <receiver
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver"
+            android:exported="false" />
         <!-- The status-bar mark for every Arc notification, so one is
              recognisable as Arc's before a word of it is read. The colour is
              set per-notification instead of here: it follows the accent hue the

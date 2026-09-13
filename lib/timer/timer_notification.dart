@@ -11,8 +11,9 @@
 //                  Arc's process to reclaim memory — the case a purely
 //                  in-process timer silently loses.
 //
-// Only one of these and the in-process alarm is ever armed; TimerController
-// swaps between them on lifecycle, so a rest ends with one sound, not two.
+// The alarm is armed as soon as a rest starts and stays with Android until it
+// fires or the rest is paused, reset, or changed. It is the sole completion
+// alarm, so backgrounding at the deadline cannot leave a Dart-only sound lost.
 
 import 'dart:convert';
 import 'dart:ui' show Color;

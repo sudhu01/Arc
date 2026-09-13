@@ -1,9 +1,8 @@
 // The buzz at zero, when Arc is the one making it.
 //
-// This is only half the story: the other half is `timer_notification.dart`,
-// which hands the same job to Android for the case where Arc is not running to
-// do it. The two are never armed at once — see TimerController's lifecycle
-// handling — so a rest ends with exactly one alarm.
+// This covers previews and the short confirmation when a rest starts.
+// `timer_notification.dart` owns completion alarms, including when Arc is on
+// screen, so Android can still ring if the app is suspended at the deadline.
 
 import 'dart:async';
 

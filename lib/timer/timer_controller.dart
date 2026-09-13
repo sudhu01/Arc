@@ -144,7 +144,10 @@ class TimerController extends ChangeNotifier with WidgetsBindingObserver {
     await _rehydrate();
     WidgetsBinding.instance.addObserver(this);
     _bubble = TimerOverlay.actions.listen(_onBubbleAction);
-    unawaited(_syncChannels());
+    // An alarm can be scheduled as soon as a rest starts, so its channel must
+    // exist before the user can start one. In particular, do not leave this to
+    // an unawaited setup task that Android may cut short as Arc is backgrounded.
+    await _syncChannels();
     unawaited(_refreshExactAlarms());
     unawaited(_refreshNotifications());
   }
@@ -221,18 +224,16 @@ class TimerController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  /// Arc is leaving the screen: hand the alarm to Android.
+  /// Arc is leaving the screen: show Android's countdown and floating control.
   ///
-  /// The in-process ticker stops here. That is not an optimisation — leaving it
-  /// running is what makes a timer alarm twice, once from the OS and once from
-  /// a Dart timer that happened to survive.
+  /// The alarm itself was armed when the rest began. That is deliberate: a
+  /// lifecycle callback is not a reliable last chance to schedule work, since
+  /// Android may suspend or kill the process before this future completes.
   Future<void> _handOverAlarm() async {
     _stopTicking();
     if (_phase == TimerPhase.running && _endsAt != null) {
       final accent = await _accent();
       await _notifier.showCountdown(
-          endsAt: _endsAt!, settings: _settings, accent: accent);
-      _exactAlarms = await _notifier.scheduleAlarm(
           endsAt: _endsAt!, settings: _settings, accent: accent);
       await TimerOverlay.show(
         endsAt: _endsAt!,
@@ -256,13 +257,12 @@ class TimerController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  /// Arc is back: take the alarm off Android and put the shade entry away.
+  /// Arc is back: put the shade entry away.
   ///
   /// Reconciles first — the deadline may have passed, or an action tapped in
   /// the shade may have moved it, both of which happened in a different
   /// isolate while this one was asleep.
   Future<void> _takeBackAlarm() async {
-    await _notifier.cancelAlarm();
     await TimerOverlay.hide();
     await _reconcile();
     await _notifier.cancelCountdown();
@@ -314,6 +314,8 @@ class TimerController extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> start({Duration? over, bool haptic = true}) async {
     final length = TimerSettings.clampDuration(over ?? _settings.duration);
     await _alarm.silence();
+    // Clear a previous finished alarm before reusing its notification id.
+    await _notifier.cancelAll();
     _endsAt = _now + length.inMilliseconds;
     _pausedLeft = Duration.zero;
     _phase = TimerPhase.running;
@@ -324,6 +326,7 @@ class TimerController extends ChangeNotifier with WidgetsBindingObserver {
     // later may make a rest start now wait on a system dialog.
     unawaited(_askForNotificationsOnce());
     await _persistRun(endsAt: _endsAt, pausedLeft: null);
+    await _armAlarm();
     if (!_foreground) await _handOverAlarm();
   }
 
@@ -344,6 +347,7 @@ class TimerController extends ChangeNotifier with WidgetsBindingObserver {
     _stopTicking();
     notifyListeners();
     await _persistRun(endsAt: null, pausedLeft: _pausedLeft.inMilliseconds);
+    await _notifier.cancelAlarm();
   }
 
   Future<void> resume() async {
@@ -354,6 +358,7 @@ class TimerController extends ChangeNotifier with WidgetsBindingObserver {
     _startTicking();
     notifyListeners();
     await _persistRun(endsAt: _endsAt, pausedLeft: null);
+    await _armAlarm();
   }
 
   /// The one control the bar and the screen both put under a thumb: whatever
@@ -389,6 +394,7 @@ class TimerController extends ChangeNotifier with WidgetsBindingObserver {
         _endsAt = _now + left.inMilliseconds;
         notifyListeners();
         await _persistRun(endsAt: _endsAt, pausedLeft: null);
+        await _armAlarm();
       case TimerPhase.paused:
         final left = _pausedLeft + by;
         if (left <= Duration.zero) return reset();
@@ -426,6 +432,7 @@ class TimerController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
     await _settings.save(_db);
     await _syncChannels();
+    await _armAlarm();
   }
 
   /// Adopts a sound the user picked. [sourcePath] is the file the picker
@@ -441,6 +448,7 @@ class TimerController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
     await _settings.save(_db);
     await _syncChannels();
+    await _armAlarm();
     return true;
   }
 
@@ -452,6 +460,7 @@ class TimerController extends ChangeNotifier with WidgetsBindingObserver {
     await _settings.save(_db);
     await TimerSound.discard();
     await _syncChannels();
+    await _armAlarm();
   }
 
   /// Turns the floating bubble on, asking for the overlay grant the first time.
@@ -522,16 +531,20 @@ class TimerController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
-  /// The rest ran out with Arc on screen, so Arc makes the noise.
+  /// The rest ran out while Arc is open.
+  ///
+  /// Android's already-armed notification makes the sound and vibration. Using
+  /// that same path in the foreground avoids a race at the deadline, where a
+  /// Dart alarm and an OS alarm can otherwise both fire, and keeps the alarm
+  /// intact if Android suspends Arc just before zero.
   Future<void> _finish() async {
     _finishedAt = _endsAt ?? _now;
     _phase = TimerPhase.finished;
     _endsAt = null;
     notifyListeners();
     await _persistRun(endsAt: null, pausedLeft: null);
-    await _notifier.cancelAll();
+    await _notifier.cancelCountdown();
     await TimerOverlay.hide();
-    await _alarm.ring(_settings);
   }
 
   void _setIdle() {
@@ -551,6 +564,17 @@ class TimerController extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> _syncChannels() async {
     await _notifier.sync(_settings, accent: await _accent());
+  }
+
+  /// Keep the OS alarm armed for every active rest, not only after a lifecycle
+  /// callback. Scheduling with the same id replaces the prior deadline, which
+  /// is exactly what a resume, nudge, or alarm-setting change needs.
+  Future<void> _armAlarm() async {
+    final endsAt = _endsAt;
+    if (_phase != TimerPhase.running || endsAt == null) return;
+    _exactAlarms = await _notifier.scheduleAlarm(
+        endsAt: endsAt, settings: _settings, accent: await _accent());
+    notifyListeners();
   }
 
   Future<void> _refreshExactAlarms() async {

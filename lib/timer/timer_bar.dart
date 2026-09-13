@@ -58,7 +58,7 @@ class _BarBody extends StatelessWidget {
     final paused = timer.isPaused;
     final urgent = over || timer.isFinalStretch;
 
-    final label = over ? 'REST OVER' : (paused ? 'PAUSED' : 'REST');
+    final label = over ? 'Rest over' : (paused ? 'Paused' : 'Rest');
     final count = formatRest(timer.remaining);
 
     return Semantics(

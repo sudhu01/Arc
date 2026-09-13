@@ -164,7 +164,7 @@ class _Face extends StatelessWidget {
           children: [
             const SizedBox(height: 18),
             Text(
-              state.toUpperCase(),
+              state,
               style: AppText.ui(
                 size: 11.5,
                 weight: FontWeight.w700,
@@ -524,14 +524,12 @@ class _Behaviour extends StatelessWidget {
       children: [
         ArcSwitchRow(
           label: 'Start on every set',
-          sub: 'The rest runs the moment you add a set to a workout.',
           value: timer.settings.autoStart,
           onChanged: timer.setAutoStart,
         ),
         const _Rule(),
         ArcSwitchRow(
           label: 'Vibrate only',
-          sub: 'No sound at the end. The phone still buzzes.',
           value: timer.settings.silent,
           onChanged: timer.setSilent,
         ),
@@ -554,8 +552,6 @@ class _FloatingRow extends StatelessWidget {
 
     return ArcSwitchRow(
       label: 'Float over other apps',
-      sub: 'Keeps the countdown on screen after you leave Arc. '
-          'Android asks for permission the first time.',
       value: timer.settings.floating,
       onChanged: (value) async {
         final granted = await timer.setFloating(value);
