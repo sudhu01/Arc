@@ -46,6 +46,7 @@ class _NotesSheetState extends State<NotesSheet> {
   late final ArcStore _store;
   Timer? _debounce;
   String? _saved;
+  late NoteDoc _lastScheduledDoc = _initial;
 
   @override
   void initState() {
@@ -81,9 +82,10 @@ class _NotesSheetState extends State<NotesSheet> {
   }
 
   void _onEdited() {
-    // The toolbar's lit buttons and the history arrows both read controller
-    // state, so they follow the caret as well as the text.
-    if (mounted) setState(() {});
+    // The header and toolbar listen to the controller themselves. A caret
+    // move should neither rebuild the whole sheet nor restart the save timer.
+    if (identical(_lastScheduledDoc, _c.doc)) return;
+    _lastScheduledDoc = _c.doc;
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 900), () {
       unawaited(_persist(_c.doc));
@@ -105,13 +107,17 @@ class _NotesSheetState extends State<NotesSheet> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _header(),
+        if (widget.readOnly)
+          _header()
+        else
+          AnimatedBuilder(animation: _c, builder: (_, _) => _header()),
         const SizedBox(height: 12),
         _titleBlock(),
         const SizedBox(height: 13),
         Container(height: 1, color: AppColors.line),
         Expanded(child: widget.readOnly ? _reader() : _editor()),
-        if (!widget.readOnly) _toolbar(),
+        if (!widget.readOnly)
+          AnimatedBuilder(animation: _c, builder: (_, _) => _toolbar()),
         // The sheet's own bottom padding is zero so the toolbar can sit against
         // the keyboard. With the keyboard down, the gesture bar needs clearing.
         SizedBox(height: keyboardUp ? 10 : 10 + media.padding.bottom),
@@ -186,9 +192,11 @@ class _NotesSheetState extends State<NotesSheet> {
                     : AppColors.surface2.withValues(alpha: 0.5),
                 shape: BoxShape.circle,
               ),
-              child: ArcIcon(icon,
-                  size: 18,
-                  color: enabled ? AppColors.muted : AppColors.faint),
+              child: ArcIcon(
+                icon,
+                size: 18,
+                color: enabled ? AppColors.muted : AppColors.faint,
+              ),
             ),
           ),
         ),
@@ -204,10 +212,11 @@ class _NotesSheetState extends State<NotesSheet> {
         Text(
           'Notes',
           style: AppText.ui(
-              size: 30,
-              weight: FontWeight.w700,
-              height: 1.06,
-              letterSpacing: -0.6),
+            size: 30,
+            weight: FontWeight.w700,
+            height: 1.06,
+            letterSpacing: -0.6,
+          ),
         ),
         const SizedBox(height: 7),
         Row(
@@ -220,7 +229,10 @@ class _NotesSheetState extends State<NotesSheet> {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: AppText.ui(
-                    size: 13, weight: FontWeight.w500, color: AppColors.muted),
+                  size: 13,
+                  weight: FontWeight.w500,
+                  color: AppColors.muted,
+                ),
               ),
             ),
             Container(
@@ -302,8 +314,10 @@ class _NotesSheetState extends State<NotesSheet> {
           children: [
             ArcIcon('note', size: 34, color: AppColors.faint),
             const SizedBox(height: 12),
-            Text('Nothing written here.',
-                style: AppText.ui(size: 14.5, color: AppColors.muted)),
+            Text(
+              'Nothing written here.',
+              style: AppText.ui(size: 14.5, color: AppColors.muted),
+            ),
           ],
         ),
       );
@@ -336,8 +350,12 @@ class _NotesSheetState extends State<NotesSheet> {
             label: 'Checklist',
             active: _c.isCheckLine,
             onTap: _c.cycleCheck,
-            builder: (color) => ArcIcon('checkbox',
-                size: 21, color: color, filled: _c.isCheckLine),
+            builder: (color) => ArcIcon(
+              'checkbox',
+              size: 21,
+              color: color,
+              filled: _c.isCheckLine,
+            ),
           ),
           _tool(
             label: 'Highlight',
@@ -392,8 +410,8 @@ class _NotesSheetState extends State<NotesSheet> {
     final color = !enabled
         ? AppColors.faint.withValues(alpha: 0.45)
         : active
-            ? AppColors.accentStrong
-            : AppColors.muted;
+        ? AppColors.accentStrong
+        : AppColors.muted;
 
     return Expanded(
       child: Semantics(

@@ -13,7 +13,7 @@ import '../widgets/ui.dart';
 import 'sheet_actions.dart';
 
 /// The workout as plain text for the clipboard: same exercises, sets and
-/// numbers the sheet shows, in the same order, readable wherever it's pasted.
+/// numbers the workout screen shows, in the same order, readable wherever it's pasted.
 /// One set per line; a drop chain stays on its parent's line, since it was one
 /// set.
 String workoutAsText({
@@ -94,10 +94,8 @@ class DayDetailSheet extends StatelessWidget {
 
     String fmtW(double w) => w % 1 == 0 ? w.toInt().toString() : w.toString();
 
-    // Tapping a logged exercise opens the same est. 1RM + history overlay the
-    // Records screen uses — the companion's own records when this is their
-    // workout. Null (so the card stays inert) when the exercise has no scored
-    // set behind it, since that overlay would come up blank.
+    // Tapping a logged exercise opens its est. 1RM + history. A card with no
+    // scored set stays inert so it never opens a blank view.
     final records = data != null ? data!.records : store!.records;
     VoidCallback? openRecord(String exerciseId) {
       final rec = records[exerciseId];
@@ -108,10 +106,7 @@ class DayDetailSheet extends StatelessWidget {
     }
 
     void edit() {
-      Navigator.of(context).maybePop();
-      Future.delayed(const Duration(milliseconds: 180), () {
-        if (context.mounted) Sheets.openLog(context, date: date);
-      });
+      Sheets.openLog(context, date: date);
     }
 
     if (ses == null) {
@@ -202,7 +197,7 @@ class DayDetailSheet extends StatelessWidget {
                 ],
               ),
             ),
-            // Beside the name, below the share and copy pair on the title row.
+            // Beside the name, below the share and copy pair in the screen header.
             // A companion sees it only when there is something to read — a
             // control that opens an empty page they cannot write on is noise.
             if (session == null || ses.notes != null)

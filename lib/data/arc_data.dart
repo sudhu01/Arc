@@ -211,6 +211,27 @@ class ArcData {
     int days = 14,
     double secondaryWeight = 0.4,
   }) {
+    final raw = muscleWorkload(
+      sessions,
+      exById,
+      days: days,
+      secondaryWeight: secondaryWeight,
+    );
+    final peak = raw.values.fold(0.0, math.max);
+    if (peak <= 0) return raw;
+    return {for (final e in raw.entries) e.key: e.value / peak};
+  }
+
+  /// Effective sets in the rolling window, before normalising for glow.
+  /// A direct set counts as one; a secondary group gets [secondaryWeight].
+  /// Growth uses these absolute values so training another group cannot resize
+  /// this one, and an expired or deleted set restores its original shape.
+  static Map<Muscle, double> muscleWorkload(
+    List<Session> sessions,
+    Exercise? Function(String) exById, {
+    int days = 14,
+    double secondaryWeight = 0.4,
+  }) {
     // Trainable only: Conditioning is counted in minutes and the body has no
     // mesh for it, so a key here would be a group that can never light.
     final raw = {for (final m in Muscle.trainable) m: 0.0};
@@ -232,9 +253,7 @@ class ArcData {
         }
       }
     }
-    final peak = raw.values.fold(0.0, math.max);
-    if (peak <= 0) return raw;
-    return {for (final e in raw.entries) e.key: e.value / peak};
+    return raw;
   }
 
   /// Raw set counts for one group over the window the body map uses: [direct]

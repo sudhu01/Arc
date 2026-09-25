@@ -46,6 +46,18 @@ const SLOTS = 14; // 13 groups + structural
 
 const PARTICLE_COUNT = 300000;
 
+// For most groups, a direct set adds 1.5 mm to the surface, up to 24 mm.
+// Assisted sets use ArcData's 0.4 weight. This is an absolute 14-day scale:
+// changing any other group's workload cannot change this group's size.
+const GROWTH_PER_SET = 0.0015;
+const MAX_GROWTH = 0.024;
+// Shoulder work broadens the upper frame, carrying the arms with it. Each
+// effective set adds 1.5 mm per side, capped at 24 mm. A position-based falloff
+// keeps the torso centred and the shoulder/arm seams continuous.
+const SHOULDER_WIDTH_PER_SET = 0.0015;
+const MAX_SHOULDER_WIDTH = 0.024;
+const growthTargets = [];
+
 /// Centre of the figure. Feet at 0, crown at 1.8.
 const BODY_MID = 0.9;
 
@@ -832,6 +844,68 @@ function scatter(body, count) {
   return geo;
 }
 
+// Keep the rest pose so each update is derived from current sets, never from
+// the previous shape. The cloud, depth mask, outline and raycast collider must
+// all move together or the light-mode contour and tap targets drift apart.
+function registerGrowth(geometry, edge) {
+  growthTargets.push({
+    geometry,
+    rest: geometry.attributes.position.array.slice(),
+    edge,
+  });
+}
+
+function applyGrowth(sets) {
+  const displacement = MUSCLE_IDS.map((id) => {
+    if (id === 'shoulders') return 0;
+    const count = sets && sets[id];
+    return Number.isFinite(count)
+      ? Math.min(Math.max(count, 0) * GROWTH_PER_SET, MAX_GROWTH)
+      : 0;
+  });
+  const shoulderSets = sets && sets.shoulders;
+  const shoulderWidth = Number.isFinite(shoulderSets)
+    ? Math.min(Math.max(shoulderSets, 0) * SHOULDER_WIDTH_PER_SET, MAX_SHOULDER_WIDTH)
+    : 0;
+
+  for (const { geometry, rest, edge } of growthTargets) {
+    const positions = geometry.attributes.position;
+    const normals = geometry.attributes.normal.array;
+    const ids = geometry.attributes.muscleId.array;
+    const out = positions.array;
+    for (let i = 0; i < ids.length; i++) {
+      const amount = displacement[ids[i]] || 0;
+      // The five-ring border field already separates the muscle groups. Fade
+      // the offset through it so adjacent groups keep a continuous seam.
+      const t = Math.min(edge[i] / 0.6, 1);
+      const taper = t * t * (3 - 2 * t);
+      const offset = amount * taper;
+      const j = i * 3;
+      const length = Math.hypot(normals[j], normals[j + 1], normals[j + 2]) || 1;
+      // Broadening only the labelled deltoid vertices leaves the arms behind
+      // and makes a ledge at their border. Blend across the whole upper frame:
+      // the shoulder caps and arms move fully, the chest moves only near its
+      // outer edge, and the waist and centre line stay fixed.
+      let lateral = 0;
+      if (shoulderWidth && Math.abs(rest[j]) > 0.14 && rest[j + 1] > 0.92) {
+        const across = Math.min((Math.abs(rest[j]) - 0.14) / 0.12, 1);
+        const above = Math.min((rest[j + 1] - 0.92) / 0.16, 1);
+        lateral = Math.sign(rest[j]) * shoulderWidth
+          * (across * across * (3 - 2 * across))
+          * (above * above * (3 - 2 * above));
+      }
+      out[j] = rest[j] + normals[j] / length * offset + lateral;
+      out[j + 1] = rest[j + 1] + normals[j + 1] / length * offset;
+      out[j + 2] = rest[j + 2] + normals[j + 2] / length * offset;
+    }
+    positions.needsUpdate = true;
+    // The cloud skips frustum culling; only the solid needs a fresh bound for
+    // raycasting after its vertices move.
+    if (geometry.index) geometry.computeBoundingSphere();
+  }
+  needsRender = true;
+}
+
 /// Label anchor and outward direction per group, plus the figure's overall
 /// extents for framing — one pass over the mesh, since both want the same read.
 function measureGroups(body) {
@@ -1213,6 +1287,7 @@ window.arcBody = {
           heat[i] = typeof v === 'number' ? v : 0;
         }
         heat[STRUCTURAL] = 0;
+        applyGrowth(msg.sets);
         needsRender = true;
         break;
       }
@@ -1271,7 +1346,9 @@ window.arcBody = {
     const body = await loadBody();
     measureGroups(body);
 
-    const cloud = new THREE.Points(scatter(body, PARTICLE_COUNT), material);
+    const cloudGeometry = scatter(body, PARTICLE_COUNT);
+    registerGrowth(cloudGeometry, cloudGeometry.attributes.edge.array);
+    const cloud = new THREE.Points(cloudGeometry, material);
     cloud.frustumCulled = false;
     // Draw order is stated rather than left to three's own sort, because the
     // silhouette depends on it: depth first, then the ring that depth reveals,
@@ -1286,6 +1363,7 @@ window.arcBody = {
     solid.setAttribute(
       'muscleId', new THREE.BufferAttribute(Float32Array.from(body.muscleId), 1));
     solid.setIndex(new THREE.BufferAttribute(body.index, 1));
+    registerGrowth(solid, Float32Array.from(body.border, (v) => v / 255));
     collider = new THREE.Mesh(solid, new THREE.MeshBasicMaterial());
     collider.visible = false;
     model.add(collider);

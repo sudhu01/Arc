@@ -13,8 +13,8 @@ import 'note_spans.dart';
 /// is no other path that writes [doc].
 class RichNoteController extends TextEditingController {
   RichNoteController(NoteDoc initial)
-      : _doc = initial,
-        super(text: initial.text);
+    : _doc = initial,
+      super(text: initial.text);
 
   NoteDoc _doc;
   NoteDoc get doc => _doc;
@@ -27,6 +27,9 @@ class RichNoteController extends TextEditingController {
   int _pendingOffset = -1;
 
   bool _applying = false;
+  (int, int)? _recentBulkWord;
+  bool _bulkComposing = false;
+  static final _whitespace = RegExp(r'\s');
 
   final List<_Snap> _undo = [];
   final List<_Snap> _redo = [];
@@ -78,10 +81,7 @@ class RichNoteController extends TextEditingController {
     final e = max(sel.start, sel.end);
     final on = NoteAttr.has(_doc.attrsOver(s, e), flag);
     _record(force: true);
-    _apply(
-      _doc.mapAttrs(s, e, (a) => on ? a & ~flag : a | flag),
-      sel,
-    );
+    _apply(_doc.mapAttrs(s, e, (a) => on ? a & ~flag : a | flag), sel);
   }
 
   /// Step the size of the selection, or of the next thing typed. [delta] is
@@ -92,13 +92,17 @@ class RichNoteController extends TextEditingController {
   void stepSize(int delta) {
     final sel = selection;
     if (!sel.isValid) return;
-    final target =
-        (sizeStep + delta).clamp(NoteAttr.minSizeStep, NoteAttr.maxSizeStep);
+    final target = (sizeStep + delta).clamp(
+      NoteAttr.minSizeStep,
+      NoteAttr.maxSizeStep,
+    );
     if (target == sizeStep) return;
 
     if (sel.isCollapsed) {
-      _pendingAttrs =
-          NoteAttr.withSizeStep(_pendingAttrs ?? _doc.attrsAt(sel.baseOffset), target);
+      _pendingAttrs = NoteAttr.withSizeStep(
+        _pendingAttrs ?? _doc.attrsAt(sel.baseOffset),
+        target,
+      );
       _pendingOffset = sel.baseOffset;
       notifyListeners();
       return;
@@ -163,7 +167,8 @@ class RichNoteController extends TextEditingController {
 
   void _record({bool force = false, bool isInsert = false}) {
     final now = DateTime.now().millisecondsSinceEpoch;
-    final coalesce = !force &&
+    final coalesce =
+        !force &&
         _undo.isNotEmpty &&
         isInsert == _lastWasInsert &&
         now - _lastRecordMs < _coalesceMs;
@@ -180,14 +185,91 @@ class RichNoteController extends TextEditingController {
 
   @override
   set value(TextEditingValue newValue) {
-    if (_applying || newValue.text == _doc.text) {
-      if (!_applying) _dropStalePending(newValue.selection);
+    if (_applying) {
+      super.value = newValue;
+      return;
+    }
+
+    final oldValue = super.value;
+    if (newValue.text == _doc.text) {
+      if (_bulkComposing &&
+          oldValue.composing.isValid &&
+          !oldValue.composing.isCollapsed &&
+          (!newValue.composing.isValid || newValue.composing.isCollapsed)) {
+        _recentBulkWord = _wordBeforeCaret(newValue.text, newValue.selection);
+        _bulkComposing = false;
+      }
+      if (_recentBulkWord case final word?) {
+        final caret = newValue.selection;
+        if (!caret.isCollapsed ||
+            caret.baseOffset < word.$2 ||
+            caret.baseOffset >
+                word.$2 +
+                    (word.$2 < _doc.text.length && _doc.text[word.$2] == ' '
+                        ? 1
+                        : 0)) {
+          _recentBulkWord = null;
+        }
+      }
+      _dropStalePending(newValue.selection);
       super.value = newValue;
       return;
     }
 
     final (start, end, insert) = _diff(_doc.text, newValue.text);
     final staged = _pendingOffset == start ? _pendingAttrs : null;
+
+    // A swipe keyboard commonly commits a whole word in one update. If its
+    // next update is a single backspace at that word's end, take the word (and
+    // an auto-inserted space) together. Ordinary character typing is untouched.
+    if (_recentBulkWord case final word?) {
+      final afterWord =
+          word.$2 < _doc.text.length &&
+          _doc.text[word.$2] == ' ' &&
+          start == word.$2 &&
+          end == word.$2 + 1;
+      final lastLetter = start == word.$2 - 1 && end == word.$2;
+      if (insert.isEmpty &&
+          (afterWord || lastLetter) &&
+          newValue.selection.isCollapsed &&
+          newValue.selection.baseOffset == start) {
+        _record();
+        final dropEnd = afterWord ? word.$2 + 1 : word.$2;
+        _recentBulkWord = null;
+        _bulkComposing = false;
+        _apply(
+          _doc.replaced(word.$1, dropEnd, ''),
+          TextSelection.collapsed(offset: word.$1),
+        );
+        return;
+      }
+    }
+    final recentWord = _recentBulkWord;
+    final keepRecentWord =
+        recentWord != null &&
+        insert == ' ' &&
+        start == recentWord.$2 &&
+        end == start;
+    if (!keepRecentWord) _recentBulkWord = null;
+
+    if (newValue.composing.isValid && !newValue.composing.isCollapsed) {
+      if (insert.length > 1) _bulkComposing = true;
+      if (_bulkComposing) {
+        _recentBulkWord = _wordBeforeCaret(newValue.text, newValue.selection);
+      }
+    } else if (_bulkComposing &&
+        oldValue.composing.isValid &&
+        !oldValue.composing.isCollapsed) {
+      _recentBulkWord = _wordBeforeCaret(newValue.text, newValue.selection);
+      _bulkComposing = false;
+    } else {
+      _bulkComposing = false;
+      if (insert.length > 1) {
+        _recentBulkWord = insert.trimRight().contains(_whitespace)
+            ? null
+            : _wordBeforeCaret(newValue.text, newValue.selection);
+      }
+    }
 
     _record(isInsert: insert.isNotEmpty && end == start);
     var next = _doc.replaced(start, end, insert, insertAttrs: staged);
@@ -205,12 +287,18 @@ class RichNoteController extends TextEditingController {
           final drop = min(2, start - prev);
           next = next.replaced(prev, prev + drop, '');
           sel = TextSelection.collapsed(
-              offset: (sel.baseOffset - drop).clamp(0, next.text.length));
+            offset: (sel.baseOffset - drop).clamp(0, next.text.length),
+          );
         } else {
-          next = next.replaced(start + 1, start + 1, '$checkEmpty ',
-              insertAttrs: next.attrsAt(prev + 1));
+          next = next.replaced(
+            start + 1,
+            start + 1,
+            '$checkEmpty ',
+            insertAttrs: next.attrsAt(prev + 1),
+          );
           sel = TextSelection.collapsed(
-              offset: (sel.baseOffset + 2).clamp(0, next.text.length));
+            offset: (sel.baseOffset + 2).clamp(0, next.text.length),
+          );
         }
       }
     }
@@ -223,11 +311,14 @@ class RichNoteController extends TextEditingController {
 
     _doc = next;
     _applying = true;
-    super.value = TextEditingValue(
-      text: next.text,
-      selection: _clamp(sel, next.text.length),
-      composing: TextRange.empty,
-    );
+    // Keep the IME's composing range during normal edits. Rewriting it on each
+    // keystroke breaks prediction and can make fast typing lose characters.
+    super.value = next.text == newValue.text
+        ? newValue
+        : TextEditingValue(
+            text: next.text,
+            selection: _clamp(sel, next.text.length),
+          );
     _applying = false;
     _dropStalePending(selection);
   }
@@ -235,6 +326,8 @@ class RichNoteController extends TextEditingController {
   void _apply(NoteDoc next, TextSelection sel, {bool record = false}) {
     if (record) _record(force: true);
     _doc = next;
+    _recentBulkWord = null;
+    _bulkComposing = false;
     _clearPending();
     _applying = true;
     super.value = TextEditingValue(
@@ -263,6 +356,19 @@ class RichNoteController extends TextEditingController {
       affinity: sel.affinity,
       isDirectional: sel.isDirectional,
     );
+  }
+
+  static (int, int)? _wordBeforeCaret(String text, TextSelection selection) {
+    if (!selection.isCollapsed || !selection.isValid) return null;
+    var end = selection.baseOffset.clamp(0, text.length);
+    while (end > 0 && text[end - 1] == ' ') {
+      end--;
+    }
+    var start = end;
+    while (start > 0 && !_whitespace.hasMatch(text[start - 1])) {
+      start--;
+    }
+    return end - start > 1 ? (start, end) : null;
   }
 
   /// The smallest replacement that turns [a] into [b]: common prefix, common

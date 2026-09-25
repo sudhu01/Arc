@@ -39,7 +39,7 @@ class PRDetailSheet extends StatelessWidget {
     final best = rec.best!;
 
     // Benchmark bests need the raw sessions, which only the store has — a
-    // companion's record arrives without them, so their sheet shows the trend
+    // companion's record arrives without them, so their overview shows the trend
     // and the log and skips this section rather than showing an empty one.
     final marks = store == null
         ? const <({Benchmark mark, RecordPoint point})>[]
@@ -345,14 +345,7 @@ class PRDetailSheet extends StatelessWidget {
             label: 'Log ${ex.name}',
             icon: 'plus',
             full: true,
-            onTap: () {
-              Navigator.of(context).maybePop();
-              Future.delayed(const Duration(milliseconds: 180), () {
-                if (context.mounted) {
-                  Sheets.openLog(context, prefillExId: exId);
-                }
-              });
-            },
+            onTap: () => Sheets.openLog(context, prefillExId: exId),
           ),
       ],
     );
@@ -456,34 +449,58 @@ class _ProgressRow extends StatelessWidget {
                           color: AppColors.muted)),
                 ),
                 const SizedBox(width: 9),
-                Flexible(
-                  child: Text(
-                    kind != null
-                        ? cardioSetLine(
-                            point.secs, point.dist, point.level, kind!)
-                        : isBw
-                            ? '${point.reps} reps'
-                            : '${fmtW(point.weight)} × ${point.reps}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppText.mono(size: 14.5, weight: FontWeight.w600),
+                Expanded(
+                  child: Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          kind != null
+                              ? cardioSetLine(
+                                  point.secs, point.dist, point.level, kind!)
+                              : isBw
+                                  ? '${point.reps} reps'
+                                  : '${fmtW(point.weight)} × ${point.reps}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppText.mono(size: 14.5, weight: FontWeight.w600),
+                        ),
+                      ),
+                      if (isPR) ...[
+                        const SizedBox(width: 6),
+                        ArcIcon('medal', size: 15, color: AppColors.accentStrong),
+                      ],
+                    ],
                   ),
                 ),
-                if (isPR) ...[
-                  const SizedBox(width: 8),
-                  ArcIcon('medal', size: 15, color: AppColors.accentStrong),
-                ],
-                const Spacer(),
                 if (kind != null)
-                  Text(
-                      '${formatRate(point.dist ?? 0, point.secs ?? 0, kind!).$1}'
-                      '${kind!.countsFloors ? '' : ' /km'}',
-                      style: AppText.mono(
-                          size: 13, weight: FontWeight.w500, color: AppColors.faint))
+                  SizedBox(
+                    width: 96,
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          '${formatRate(point.dist ?? 0, point.secs ?? 0, kind!).$1}'
+                          '${kind!.countsFloors ? '' : ' /km'}',
+                          style: AppText.mono(size: 13, weight: FontWeight.w500,
+                              color: AppColors.faint),
+                        ),
+                      ),
+                    ),
+                  )
                 else if (!isBw)
-                  Text('${ArcData.fmtScore(point.score)} 1RM',
-                      style: AppText.mono(
-                          size: 13, weight: FontWeight.w500, color: AppColors.faint)),
+                  SizedBox(
+                    width: 96,
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text('${ArcData.fmtScore(point.score)} 1RM',
+                            style: AppText.mono(size: 13, weight: FontWeight.w500,
+                                color: AppColors.faint)),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),

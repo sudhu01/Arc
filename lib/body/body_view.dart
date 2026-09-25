@@ -57,17 +57,20 @@ const _bootTimeout = Duration(seconds: 8);
 class _BodyViewState extends State<BodyView> {
   WebViewController? _controller;
   Timer? _bootTimer;
+  Timer? _dayTimer;
 
   bool _ready = false;
   bool _failed = false;
 
   Map<Muscle, double>? _pushedVolume;
+  Map<Muscle, double>? _pushedWorkload;
   bool? _pushedDark;
   int? _pushedAccent;
 
   @override
   void initState() {
     super.initState();
+    _scheduleDayRefresh();
     // Only if the tab is already open. Booting here unconditionally would put
     // WebView startup, a ~700KB JavaScript parse and the point-scatter pass
     // into the app's own cold start, for a screen the user may never open —
@@ -89,7 +92,18 @@ class _BodyViewState extends State<BodyView> {
   @override
   void dispose() {
     _bootTimer?.cancel();
+    _dayTimer?.cancel();
     super.dispose();
+  }
+
+  void _scheduleDayRefresh() {
+    final now = DateTime.now();
+    final nextDay = DateTime(now.year, now.month, now.day + 1);
+    _dayTimer = Timer(nextDay.difference(now) + const Duration(seconds: 1), () {
+      if (!mounted) return;
+      if (_ready) _pushVolume();
+      _scheduleDayRefresh();
+    });
   }
 
   Future<void> _boot() async {
@@ -202,13 +216,20 @@ class _BodyViewState extends State<BodyView> {
   void _pushVolume({bool force = false}) {
     final store = context.read<ArcStore>();
     final v = ArcData.muscleVolume(store.sessions, store.exById);
-    if (!force && _pushedVolume != null && _sameVolume(_pushedVolume!, v)) {
+    final sets = ArcData.muscleWorkload(store.sessions, store.exById);
+    if (!force &&
+        _pushedVolume != null &&
+        _pushedWorkload != null &&
+        _sameVolume(_pushedVolume!, v) &&
+        _sameVolume(_pushedWorkload!, sets)) {
       return;
     }
     _pushedVolume = v;
+    _pushedWorkload = sets;
     _send({
       't': 'volume',
       'v': {for (final e in v.entries) e.key.id: e.value},
+      'sets': {for (final e in sets.entries) e.key.id: e.value},
     });
   }
 

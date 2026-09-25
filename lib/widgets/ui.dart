@@ -16,12 +16,14 @@ class CopyIconButton extends StatefulWidget {
   /// Resolved on tap, so what's copied reflects the state at that moment.
   final String Function() text;
   final double size;
+  final double? visualSize;
   final String semanticLabel;
 
   const CopyIconButton({
     super.key,
     required this.text,
     this.size = 34,
+    this.visualSize,
     this.semanticLabel = 'Copy',
   });
 
@@ -58,14 +60,19 @@ class _CopyIconButtonState extends State<CopyIconButton>
 
   @override
   Widget build(BuildContext context) {
-    final glyph = widget.size * 0.53;
+    final visualSize = widget.visualSize ?? widget.size;
+    final glyph = visualSize * 0.53;
     return Semantics(
       button: true,
       label: widget.semanticLabel,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: _copy,
-        child: AnimatedBuilder(
+        child: SizedBox(
+          width: widget.size,
+          height: widget.size,
+          child: Center(
+            child: AnimatedBuilder(
           animation: _c,
           builder: (context, _) {
             final t = _c.value;
@@ -80,8 +87,8 @@ class _CopyIconButtonState extends State<CopyIconButton>
             return Transform.scale(
               scale: pop,
               child: Container(
-                width: widget.size,
-                height: widget.size,
+                width: visualSize,
+                height: visualSize,
                 decoration: BoxDecoration(
                   color: Color.lerp(AppColors.surface2, AppColors.accentSoft, t),
                   shape: BoxShape.circle,
@@ -114,6 +121,8 @@ class _CopyIconButtonState extends State<CopyIconButton>
               ),
             );
           },
+            ),
+          ),
         ),
       ),
     );
